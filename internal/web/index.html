@@ -2,759 +2,1037 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark light">
 <title>SAdns — DNS & network diagnostics</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%2364D2FF'/%3E%3Cstop offset='1' stop-color='%230A84FF'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect x='2' y='2' width='28' height='28' rx='9' fill='url(%23g)'/%3E%3Ccircle cx='16' cy='16' r='7' fill='none' stroke='white' stroke-width='2.2'/%3E%3Ccircle cx='16' cy='16' r='2.4' fill='white'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='2' y='2' width='28' height='28' rx='9' fill='%2325303A'/%3E%3Ccircle cx='16' cy='16' r='7.5' fill='none' stroke='%237CC4F2' stroke-width='2.2'/%3E%3Ccircle cx='16' cy='16' r='2.4' fill='%23F3F6F9'/%3E%3C/svg%3E">
 <style>
-/* ------------------------------------------------------------------
-   Liquid Glass — tinted dark
-   Translucent, blurred, saturated material over a vivid backdrop, with
-   a specular rim (gradient border), inner light, and a pointer-tracking
-   highlight. Everything is tinted by --tint.
-   ------------------------------------------------------------------ */
+/* ===================================================================
+   SAdns — glass material over a graphite / ice field.
+   Tokens first; components only reference tokens.
+   =================================================================== */
 :root{
-  --tint:#0A84FF; --tint2:#64D2FF;
-  --bg:#05060a;
-  --label:rgba(255,255,255,.94); --label2:rgba(235,235,245,.62); --label3:rgba(235,235,245,.34);
-  --sep:rgba(255,255,255,.09);
-  --green:#30D158; --orange:#FF9F0A; --red:#FF453A; --blue:#0A84FF; --gray:#8E8E93; --yellow:#FFD60A;
-  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue",Inter,"Segoe UI Variable","Segoe UI",system-ui,sans-serif;
-  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,"Cascadia Code",Consolas,monospace;
-  --glass-fill:color-mix(in oklab, var(--tint) 10%, rgba(30,32,40,.42));
-  --glass-fill-strong:color-mix(in oklab, var(--tint) 14%, rgba(36,38,48,.62));
-  --glass-blur:blur(28px) saturate(185%);
-  --r-xl:28px; --r-lg:22px; --r-md:16px; --r-sm:12px;
+  --graphite:#15181D; --slate:#252A32; --silver:#C3C9D2; --frost:#F3F6F9; --ice:#7CC4F2; --teal:#4DB6AC;
+  --sans:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Helvetica Neue","Segoe UI Variable","Segoe UI",Roboto,system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,"Cascadia Mono",Consolas,monospace;
+  --r-lg:22px; --r-md:16px; --r-sm:11px; --r-pill:999px;
+  --sp1:4px; --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px; --sp6:32px;
+  --switch-w:46px; --switch-h:28px;
+  --dur:.18s;
+}
+/* Dark (default) */
+:root,[data-theme=dark]{
+  --bg0:#101317; --bg1:#1A1F26;
+  --text:#F3F6F9; --text2:rgba(214,222,232,.72); --text3:rgba(195,201,210,.48);
+  --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.16);
+  --glass:rgba(38,44,53,.52); --glass-strong:rgba(44,51,61,.78); --glass-solid:#232931;
+  --rim:rgba(255,255,255,.14); --spec:rgba(255,255,255,.22);
+  --accent:#7CC4F2; --accent-ink:#0B1A26; --accent-soft:rgba(124,196,242,.16);
+  --auto:#4DB6AC; --auto-soft:rgba(77,182,172,.16);
+  --ok:#4CC38A; --warn:#E8B04B; --fail:#F0625A; --unk:#9AA4B1;
+  --ok-soft:rgba(76,195,138,.15); --warn-soft:rgba(232,176,75,.16); --fail-soft:rgba(240,98,90,.16); --unk-soft:rgba(154,164,177,.14);
+  --shadow:0 18px 44px rgba(0,0,0,.38),0 2px 6px rgba(0,0,0,.22);
+  --contour:rgba(124,196,242,.075);
+}
+[data-theme=light]{
+  --bg0:#E6EBF1; --bg1:#F4F7FA;
+  --text:#15181D; --text2:rgba(37,42,50,.74); --text3:rgba(37,42,50,.5);
+  --line:rgba(21,24,29,.09); --line2:rgba(21,24,29,.16);
+  --glass:rgba(255,255,255,.58); --glass-strong:rgba(255,255,255,.82); --glass-solid:#FBFCFD;
+  --rim:rgba(255,255,255,.9); --spec:rgba(255,255,255,.95);
+  --accent:#1F7FC1; --accent-ink:#FFFFFF; --accent-soft:rgba(31,127,193,.12);
+  --auto:#1F8A80; --auto-soft:rgba(31,138,128,.12);
+  --ok:#1E8A55; --warn:#A86A00; --fail:#C7372F; --unk:#5F6B78;
+  --ok-soft:rgba(30,138,85,.12); --warn-soft:rgba(168,106,0,.12); --fail-soft:rgba(199,55,47,.11); --unk-soft:rgba(95,107,120,.11);
+  --shadow:0 14px 36px rgba(40,60,85,.14),0 1px 3px rgba(40,60,85,.1);
+  --contour:rgba(31,127,193,.09);
 }
 *{box-sizing:border-box}
-html{background:var(--bg)}
-body{background:transparent}
-html,body{margin:0;min-height:100%;color:var(--label);font:15px/1.47 var(--sans);-webkit-font-smoothing:antialiased;letter-spacing:-.01em}
-a{color:var(--tint2);text-decoration:none}
-code,.mono{font-family:var(--mono);font-size:12.5px;letter-spacing:0}
-::selection{background:color-mix(in oklab,var(--tint) 55%,transparent)}
-
-/* Vivid wallpaper so the glass has something to refract */
-.wallpaper{position:fixed;inset:0;z-index:-1;overflow:hidden;background:
-  radial-gradient(1200px 800px at 110% -10%, color-mix(in oklab,var(--tint) 38%,transparent), transparent 60%),
-  radial-gradient(900px 700px at -10% 110%, color-mix(in oklab,var(--tint2) 26%,transparent), transparent 60%),
-  linear-gradient(180deg,#07080d,#05060a)}
-.blob{position:absolute;border-radius:50%;filter:blur(70px);opacity:.55;mix-blend-mode:screen;animation:drift 26s ease-in-out infinite alternate}
-.blob.b1{width:520px;height:520px;left:8%;top:12%;background:var(--tint)}
-.blob.b2{width:420px;height:420px;right:6%;top:38%;background:var(--tint2);animation-duration:32s;animation-delay:-8s}
-.blob.b3{width:360px;height:360px;left:38%;bottom:-8%;background:color-mix(in oklab,var(--tint) 50%,#BF5AF2);animation-duration:38s;animation-delay:-16s}
-@keyframes drift{0%{transform:translate(0,0) scale(1)}50%{transform:translate(60px,-40px) scale(1.12)}100%{transform:translate(-50px,30px) scale(.95)}}
-.grain{position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.06;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
-@media (prefers-reduced-motion:reduce){.blob{animation:none}}
-
-/* The material */
-.glass{position:relative;background:var(--glass-fill);-webkit-backdrop-filter:var(--glass-blur);backdrop-filter:var(--glass-blur);
-  border-radius:var(--r-xl);
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.18), inset 0 -1px 0 rgba(255,255,255,.04), inset 0 0 22px rgba(255,255,255,.035), 0 18px 50px rgba(0,0,0,.42), 0 2px 6px rgba(0,0,0,.25);
-  isolation:isolate}
-.glass::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;z-index:2;
-  background:linear-gradient(140deg,rgba(255,255,255,.55),rgba(255,255,255,.08) 28%,rgba(255,255,255,.02) 55%,color-mix(in oklab,var(--tint2) 45%,rgba(255,255,255,.18)));
-  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
-.glass::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:-1;opacity:var(--hl,0);transition:opacity .35s;
-  background:radial-gradient(420px circle at var(--mx,50%) var(--my,0%), rgba(255,255,255,.10), transparent 45%)}
-.glass:hover{--hl:1}
-.glass.strong{background:var(--glass-fill-strong)}
-
-/* Layout */
-.topbar{position:sticky;top:14px;z-index:20;margin:14px auto 0;max-width:1240px;display:flex;align-items:center;gap:12px;padding:10px 12px 10px 18px;border-radius:999px}
-.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;letter-spacing:-.02em}
-.logo .mark{width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:linear-gradient(135deg,var(--tint2),var(--tint));box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 4px 14px color-mix(in oklab,var(--tint) 55%,transparent)}
-.logo .mark svg{width:18px;height:18px}
-.ver{color:var(--label3);font:500 12px var(--mono)}
-.spacer{flex:1}
-.host{color:var(--label2);font:500 12px var(--mono)}
-main{max-width:1240px;margin:0 auto;padding:26px 0 40px}
-@media (max-width:1290px){main,.topbar{margin-left:20px;margin-right:20px}}
-
-/* Controls */
-.btn{appearance:none;border:0;cursor:pointer;color:var(--label);font:600 14px var(--sans);letter-spacing:-.01em;padding:10px 18px;border-radius:999px;display:inline-flex;align-items:center;gap:8px;
-  background:rgba(255,255,255,.08);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 0 0 1px rgba(255,255,255,.06);transition:transform .15s,background .2s,box-shadow .2s}
-.btn:hover{background:rgba(255,255,255,.14)}
-.btn:active{transform:scale(.97)}
-.btn.tinted{background:linear-gradient(180deg,color-mix(in oklab,var(--tint) 88%,white 12%),var(--tint));color:white;box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 8px 24px color-mix(in oklab,var(--tint) 45%,transparent)}
-.btn.tinted:hover{filter:brightness(1.08)}
-.btn.big{padding:15px 30px;font-size:16px}
-.btn.small{padding:7px 13px;font-size:13px}
-.btn.plain{background:transparent;box-shadow:none;color:var(--label2)}
-.btn.plain:hover{color:var(--label);background:rgba(255,255,255,.06)}
-.btn:disabled{opacity:.45;cursor:not-allowed}
-.seg{display:flex;padding:4px;border-radius:999px;background:rgba(0,0,0,.28);box-shadow:inset 0 1px 2px rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.05)}
-.seg button{flex:1;border:0;background:transparent;color:var(--label2);padding:8px 14px;border-radius:999px;font:600 13px var(--sans);cursor:pointer;transition:.2s}
-.seg button.on{color:var(--label);background:rgba(255,255,255,.14);box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 2px 8px rgba(0,0,0,.3)}
-.chips{display:flex;flex-wrap:wrap;gap:7px}
-.chip{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 12px;font-size:13px;font-weight:500;cursor:pointer;user-select:none;color:var(--label2);background:rgba(255,255,255,.05);box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);transition:.2s}
-.chip input{display:none}
-.chip.on{color:var(--label);background:color-mix(in oklab,var(--tint) 30%,transparent);box-shadow:inset 0 1px 0 rgba(255,255,255,.2),inset 0 0 0 1px color-mix(in oklab,var(--tint) 55%,transparent)}
-.switch{display:inline-flex;align-items:center;gap:9px;font-size:13.5px;color:var(--label2);cursor:pointer;user-select:none}
-.switch input{appearance:none;width:38px;height:23px;border-radius:999px;background:rgba(120,120,128,.32);position:relative;cursor:pointer;transition:.25s;margin:0}
-.switch input::after{content:"";position:absolute;top:2px;left:2px;width:19px;height:19px;border-radius:50%;background:white;box-shadow:0 2px 5px rgba(0,0,0,.35);transition:.25s}
-.switch input:checked{background:var(--green)}
-.switch input:checked::after{left:17px}
-input[type=text],input[type=number]{width:100%;background:rgba(0,0,0,.28);border:0;box-shadow:inset 0 1px 2px rgba(0,0,0,.4),inset 0 0 0 1px rgba(255,255,255,.07);color:var(--label);border-radius:var(--r-sm);padding:10px 12px;font:13px var(--mono);outline:none}
-input:focus{box-shadow:inset 0 0 0 2px color-mix(in oklab,var(--tint) 70%,transparent)}
-.label{font-size:12px;font-weight:600;color:var(--label2);margin:0 0 7px;text-transform:uppercase;letter-spacing:.06em}
+html{background:var(--bg0);color-scheme:dark}
+[data-theme=light]{color-scheme:light}
+html,body{margin:0;min-height:100%}
+body{color:var(--text);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:var(--accent)}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+h1,h2,h3,h4{margin:0;font-weight:650;letter-spacing:-.015em}
+h1{font-size:28px;line-height:1.15} h2{font-size:20px} h3{font-size:16px} h4{font-size:14px}
+p{margin:0}
+.muted{color:var(--text2)} .faint{color:var(--text3)} .small{font-size:13px}
 .hidden{display:none!important}
-.small{font-size:12.5px;color:var(--label3)}
+::selection{background:var(--accent-soft)}
 
-/* Tint picker */
-.tints{display:flex;gap:6px;align-items:center;padding:0 6px}
-.tints button{width:18px;height:18px;border-radius:50%;border:0;cursor:pointer;box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 0 0 2px transparent;transition:.2s}
-.tints button.on{box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 0 0 2px rgba(255,255,255,.85)}
+/* Atmospheric wallpaper: graphite gradient + static contour field (SVG). */
+.wall{position:fixed;inset:0;z-index:-1;background:
+  radial-gradient(1100px 700px at 85% -10%,var(--accent-soft),transparent 65%),
+  radial-gradient(900px 600px at -5% 105%,var(--auto-soft),transparent 60%),
+  linear-gradient(180deg,var(--bg1),var(--bg0))}
+.wall::after{content:"";position:absolute;inset:0;opacity:1;background-size:900px 600px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='900' height='600' viewBox='0 0 900 600' fill='none' stroke='%237CC4F2' stroke-opacity='.55' stroke-width='1'%3E%3Cpath d='M-20 420C120 360 230 380 340 330S560 180 700 210 880 300 940 260'/%3E%3Cpath d='M-20 450C120 390 240 410 350 362S560 222 700 248 880 336 940 300'/%3E%3Cpath d='M-20 480C130 422 250 440 360 395S565 265 705 288 880 372 940 340'/%3E%3Cpath d='M-20 512C140 455 262 472 372 430S572 310 710 330 882 410 940 382'/%3E%3Cpath d='M-20 545C150 490 275 505 385 466S580 356 716 374 884 450 940 425'/%3E%3Cpath d='M-20 120C90 150 180 90 300 110S500 200 620 160 820 60 940 90'/%3E%3Cpath d='M-20 92C95 120 185 62 305 80S505 168 625 128 822 30 940 58'/%3E%3Cpath d='M-20 64C100 90 190 34 310 50S510 136 630 96 824 2 940 26'/%3E%3C/svg%3E");
+  -webkit-mask:linear-gradient(180deg,rgba(0,0,0,.9),rgba(0,0,0,.35));mask:linear-gradient(180deg,rgba(0,0,0,.9),rgba(0,0,0,.35));filter:opacity(.16)}
+[data-theme=light] .wall::after{filter:opacity(.22)}
 
-/* Start */
-.hero{display:grid;grid-template-columns:1.15fr 1fr;gap:22px;align-items:stretch}
-.hero .intro{padding:38px}
-.hero h1{font-size:44px;line-height:1.05;letter-spacing:-.035em;margin:0 0 14px;font-weight:700}
-.hero h1 span{background:linear-gradient(120deg,#fff,color-mix(in oklab,var(--tint2) 70%,white));-webkit-background-clip:text;background-clip:text;color:transparent}
-.hero p{color:var(--label2);margin:0 0 26px;max-width:56ch;font-size:16px}
-.feature-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:30px}
-.feat{display:flex;gap:10px;align-items:center;font-size:13.5px;color:var(--label2)}
-.feat i{flex:none;width:26px;height:26px;border-radius:8px;display:grid;place-items:center;font-style:normal;font-size:13px;background:color-mix(in oklab,var(--tint) 24%,rgba(255,255,255,.06));box-shadow:inset 0 1px 0 rgba(255,255,255,.2)}
-.opts{padding:28px}
-.opts .field{margin:16px 0}
-.row{display:flex;gap:16px;flex-wrap:wrap}
-.row>*{flex:1}
+/* Glass material: translucent fill, blur, a 1px rim and one restrained top specular line. */
+.glass{position:relative;background:var(--glass);-webkit-backdrop-filter:blur(26px) saturate(150%);backdrop-filter:blur(26px) saturate(150%);
+  border:1px solid var(--rim);border-radius:var(--r-lg);box-shadow:var(--shadow),inset 0 1px 0 var(--spec)}
+.glass.strong{background:var(--glass-strong)}
+/* Reduced transparency: system preference or the in-app switch. */
+@media (prefers-reduced-transparency:reduce){.glass{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}}
+[data-transparency=reduced] .glass{background:var(--glass-solid);-webkit-backdrop-filter:none;backdrop-filter:none}
+[data-transparency=reduced] .wall::after{display:none}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;scroll-behavior:auto!important}}
+@media (prefers-contrast:more){:root{--line:rgba(255,255,255,.3);--rim:rgba(255,255,255,.5);--text2:var(--text)}}
 
-/* Run */
-.runpanel{padding:28px}
-.prog{height:10px;border-radius:999px;background:rgba(0,0,0,.35);box-shadow:inset 0 1px 2px rgba(0,0,0,.5);overflow:hidden;margin:14px 0 20px}
-.prog>div{height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--tint),var(--tint2));box-shadow:0 0 18px color-mix(in oklab,var(--tint2) 70%,transparent),inset 0 1px 0 rgba(255,255,255,.5);transition:width .5s cubic-bezier(.2,.8,.2,1)}
-.phases{display:grid;grid-template-columns:repeat(8,1fr);gap:8px;margin-bottom:20px}
-.phase{font-size:12px;font-weight:600;color:var(--label3);padding:8px 10px;border-radius:12px;background:rgba(255,255,255,.03);text-align:center;transition:.3s}
-.phase.active{color:white;background:color-mix(in oklab,var(--tint) 40%,transparent);box-shadow:inset 0 1px 0 rgba(255,255,255,.25)}
-.phase.done{color:var(--label2);background:rgba(255,255,255,.07)}
-.log{font:12px/1.6 var(--mono);color:var(--label2);height:150px;overflow:auto;padding:14px 16px;border-radius:var(--r-md);background:rgba(0,0,0,.3);box-shadow:inset 0 1px 3px rgba(0,0,0,.45);white-space:pre-wrap;margin-top:16px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:8px}
 
-/* Results */
-.verdict{display:flex;align-items:center;gap:24px;padding:26px 28px}
-.orb{width:74px;height:74px;border-radius:50%;flex:none;display:grid;place-items:center;font-size:32px;font-weight:700;color:white;box-shadow:inset 0 2px 1px rgba(255,255,255,.5),inset 0 -6px 14px rgba(0,0,0,.25),0 10px 30px var(--orbglow)}
-.v-healthy .orb{background:radial-gradient(circle at 35% 30%,#7CF0A0,var(--green) 55%,#169B43);--orbglow:rgba(48,209,88,.45)}
-.v-degraded .orb{background:radial-gradient(circle at 35% 30%,#FFD27A,var(--orange) 55%,#C26F00);--orbglow:rgba(255,159,10,.45)}
-.v-problems .orb{background:radial-gradient(circle at 35% 30%,#FF8C84,var(--red) 55%,#B3261E);--orbglow:rgba(255,69,58,.45)}
-.verdict h2{margin:0;font-size:28px;letter-spacing:-.03em}
-.verdict p{margin:4px 0 0;color:var(--label2)}
-.counts{display:flex;gap:10px;margin-left:auto}
-.count{min-width:82px;text-align:center;padding:12px 10px;border-radius:var(--r-md);cursor:pointer;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 0 rgba(255,255,255,.12);transition:.2s}
-.count:hover{background:rgba(255,255,255,.1);transform:translateY(-1px)}
-.count b{display:block;font-size:26px;font-weight:700;letter-spacing:-.03em;line-height:1.1}
-.count span{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--label2)}
-.count.f b{color:var(--red)}.count.w b{color:var(--orange)}.count.i b{color:var(--tint2)}.count.p b{color:var(--green)}
-.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:18px 0}
-.tabbar{position:sticky;top:84px;z-index:15;display:flex;gap:2px;padding:5px;border-radius:999px;margin:0 0 20px;width:fit-content;max-width:100%;overflow-x:auto}
-.tab{background:none;border:0;color:var(--label2);padding:9px 16px;border-radius:999px;font:600 13.5px var(--sans);cursor:pointer;white-space:nowrap;transition:.2s}
-.tab:hover{color:var(--label)}
-.tab.on{color:white;background:color-mix(in oklab,var(--tint) 55%,rgba(255,255,255,.1));box-shadow:inset 0 1px 0 rgba(255,255,255,.3),0 4px 14px color-mix(in oklab,var(--tint) 35%,transparent)}
+/* ---------- Shell ---------- */
+.shell{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;padding:var(--sp5) var(--sp4);display:flex;flex-direction:column;gap:var(--sp2)}
+.brand{display:flex;align-items:center;gap:10px;padding:4px 10px 18px}
+.brand .mark{width:30px;height:30px;border-radius:9px;background:var(--slate);display:grid;place-items:center;box-shadow:inset 0 1px 0 rgba(255,255,255,.15)}
+.brand .mark i{width:14px;height:14px;border-radius:50%;border:2px solid var(--ice);display:block}
+.brand b{font-size:17px;letter-spacing:-.02em}
+.brand span{font-size:12px;color:var(--text3)}
+.nav{display:flex;flex-direction:column;gap:2px}
+.nav button{all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--r-sm);color:var(--text2);font-weight:550}
+.nav button svg{width:18px;height:18px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.nav button:hover{background:var(--line)}
+.nav button[aria-current=page]{background:var(--accent-soft);color:var(--text)}
+.nav button:focus-visible{outline:2px solid var(--accent)}
+.side .foot{margin-top:auto;padding:10px 12px;font-size:12px;color:var(--text3);display:flex;flex-direction:column;gap:6px}
+main{padding:var(--sp6) clamp(16px,4vw,48px) 80px;max-width:1240px;width:100%}
+.view-head{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--sp4);flex-wrap:wrap;margin-bottom:var(--sp5)}
+.view-head p{margin-top:4px}
+.view-head>div{min-width:0;overflow-wrap:anywhere}
+.stack{display:flex;flex-direction:column;gap:var(--sp4)}
+.stack>*{min-width:0;max-width:100%}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--sp4)}
+.grid3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--sp4)}
+.card{padding:var(--sp5)}
+.card h3+*{margin-top:var(--sp3)}
+.sec{margin:var(--sp5) 4px var(--sp3)}
 
-/* Findings */
-.filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
-.finding{margin-bottom:12px;border-radius:var(--r-lg)}
-.finding summary{list-style:none;cursor:pointer;padding:16px 20px;display:flex;gap:14px;align-items:center}
-.finding summary::-webkit-details-marker{display:none}
-.sev{font:700 10.5px var(--sans);letter-spacing:.08em;padding:4px 9px;border-radius:999px;flex:none;color:white;box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}
-.sev.fail{background:var(--red)}.sev.warn{background:var(--orange)}.sev.info{background:color-mix(in oklab,var(--tint) 80%,#555)}.sev.pass{background:var(--green)}.sev.skip{background:var(--gray)}
-.finding .title{font-weight:600;flex:1;font-size:15px}
-.finding .fid{color:var(--label3);font:500 11.5px var(--mono)}
-.finding .chev{color:var(--label3);transition:transform .25s}
-.finding[open] .chev{transform:rotate(90deg)}
-.finding .body{padding:0 20px 18px 20px;color:var(--label2)}
-.finding .body p{margin:4px 0 10px}
-.finding ul{margin:6px 0;padding:12px 14px 12px 30px;font:12px/1.65 var(--mono);color:var(--label);background:rgba(0,0,0,.22);border-radius:var(--r-sm)}
-.fix{margin-top:12px;padding:12px 14px;border-radius:var(--r-sm);color:var(--label);background:color-mix(in oklab,var(--tint) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--tint) 35%,transparent)}
-.fix b{color:var(--tint2)}
+/* ---------- Buttons & segmented controls ---------- */
+.btn{all:unset;box-sizing:border-box;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:36px;padding:0 16px;border-radius:var(--r-pill);
+  background:var(--line);color:var(--text);font-weight:600;font-size:14px;border:1px solid var(--line);transition:background var(--dur),transform var(--dur)}
+.btn:hover{background:var(--line2)}
+.btn:active{transform:scale(.98)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn[disabled]{opacity:.45;cursor:default}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}
+.btn.primary:hover{filter:brightness(1.06)}
+.btn.big{min-height:52px;padding:0 28px;font-size:16px}
+.btn.danger{color:var(--fail)}
+.btn.sm{min-height:30px;padding:0 12px;font-size:13px}
+.seg{display:inline-flex;padding:3px;border-radius:var(--r-pill);background:var(--line);border:1px solid var(--line);gap:2px}
+.seg button{all:unset;cursor:pointer;padding:6px 14px;border-radius:var(--r-pill);font-size:13px;font-weight:600;color:var(--text2)}
+.seg button[aria-pressed=true]{background:var(--glass-strong);color:var(--text);box-shadow:0 1px 3px rgba(0,0,0,.2),inset 0 1px 0 var(--spec)}
+.seg button:focus-visible{outline:2px solid var(--accent)}
 
-/* Tables */
-.tw{overflow:auto;border-radius:var(--r-lg);margin-bottom:20px}
-.tw.glass{padding:4px}
-table{border-collapse:separate;border-spacing:0;width:100%;font-size:13px}
-th,td{padding:9px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--sep)}
-th{color:var(--label3);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.07em;white-space:nowrap;position:sticky;top:0;background:color-mix(in oklab,var(--tint) 8%,rgba(22,24,30,.92));z-index:1}
-tr:last-child td{border-bottom:0}
-td.mono{white-space:nowrap}
-tr.clickable{cursor:pointer}
-tr.clickable:hover td{background:rgba(255,255,255,.04)}
-tr.detail>td{background:rgba(0,0,0,.2);padding:16px}
-.dot{display:inline-block;width:10px;height:10px;border-radius:50%;box-shadow:inset 0 1px 0 rgba(255,255,255,.45),0 0 8px var(--g,transparent)}
-.dot.pass{background:var(--green);--g:rgba(48,209,88,.5)}.dot.warn{background:var(--orange);--g:rgba(255,159,10,.5)}.dot.fail{background:var(--red);--g:rgba(255,69,58,.55)}.dot.info{background:var(--tint2)}.dot.skip{background:rgba(142,142,147,.45)}
-.tag{display:inline-block;padding:2px 9px;border-radius:999px;font:600 11px var(--sans);background:rgba(255,255,255,.07);color:var(--label2);white-space:nowrap}
-.tag.good{color:var(--green);background:rgba(48,209,88,.14)}.tag.bad{color:var(--red);background:rgba(255,69,58,.15)}.tag.meh{color:var(--orange);background:rgba(255,159,10,.14)}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:20px}
-.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-bottom:20px}
-.card{padding:20px 22px;border-radius:var(--r-lg)}
-.card h4{margin:0 0 12px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--label2);display:flex;align-items:center;gap:8px}
-.big-num{font-size:34px;font-weight:700;letter-spacing:-.04em;line-height:1}
-.big-num small{font-size:14px;color:var(--label2);font-weight:600;letter-spacing:0;margin-left:4px}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 16px;font-size:13.5px}
-.kv div:nth-child(odd){color:var(--label3)}
-.kv div:nth-child(even){font-family:var(--mono);font-size:12.5px;word-break:break-all}
-h3.sec{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--label2);margin:28px 4px 12px}
-pre.raw{margin:0;padding:18px;border-radius:var(--r-md);font:12px/1.55 var(--mono);color:var(--label);white-space:pre-wrap;word-break:break-word;max-height:70vh;overflow:auto;background:rgba(0,0,0,.28)}
-.hop{font:12px/1.8 var(--mono)}
-.spark{display:flex;align-items:flex-end;gap:2px;height:34px;margin-top:10px}
-.spark i{flex:1;border-radius:3px 3px 1px 1px;background:linear-gradient(180deg,var(--tint2),var(--tint));min-height:2px;opacity:.85}
-.spark i.lost{background:var(--red);opacity:.6;height:100%!important}
-.toast{position:fixed;bottom:28px;left:50%;transform:translate(-50%,20px);padding:12px 20px;border-radius:999px;opacity:0;transition:.3s;pointer-events:none;z-index:50;font-weight:600}
+/* ---------- Status language: colour + glyph + word ---------- */
+.st{display:inline-flex;align-self:flex-start;justify-self:start;height:max-content;align-items:center;gap:6px;font-weight:600;font-size:13px;padding:3px 10px 3px 6px;border-radius:var(--r-pill);white-space:nowrap}
+.st i{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:11px;font-weight:800;flex:none}
+.st.ok{background:var(--ok-soft);color:var(--ok)} .st.ok i{background:var(--ok);color:var(--bg0)}
+.st.warn{background:var(--warn-soft);color:var(--warn)} .st.warn i{background:var(--warn);color:var(--bg0);border-radius:3px;transform:rotate(45deg) scale(.82)} .st.warn i b{transform:rotate(-45deg)}
+.st.fail{background:var(--fail-soft);color:var(--fail)} .st.fail i{background:var(--fail);color:var(--bg0);border-radius:4px}
+.st.unknown{background:var(--unk-soft);color:var(--unk)} .st.unknown i{border:2px dashed var(--unk)}
+.st.untested{background:transparent;color:var(--text3);border:1px solid var(--line2)} .st.untested i{border:2px solid var(--text3)}
+.st.info{background:var(--accent-soft);color:var(--accent)} .st.info i{background:var(--accent);color:var(--bg0)}
+.st.auto{background:var(--auto-soft);color:var(--auto)} .st.auto i{background:var(--auto);color:var(--bg0)}
+
+/* ---------- Dashboard ---------- */
+.hero{padding:var(--sp6);display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--sp5);align-items:center}
+.hero .verdict{display:flex;flex-direction:column;gap:10px}
+.hero h1{max-width:28ch}
+.hero .meta{display:flex;flex-wrap:wrap;gap:var(--sp2) var(--sp5);color:var(--text2);font-size:13px}
+.hero .meta b{color:var(--text);font-weight:600}
+.hero .act{display:flex;flex-direction:column;align-items:flex-end;gap:var(--sp3)}
+.progress{grid-column:1/-1;display:flex;flex-direction:column;gap:8px}
+.track{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.track i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--teal));border-radius:3px;transition:width .4s}
+.progress .row1{display:flex;justify-content:space-between;gap:var(--sp3);font-size:13px;color:var(--text2)}
+.log{max-height:180px;overflow:auto;font:12px/1.55 var(--mono);color:var(--text2);white-space:pre-wrap;background:var(--line);border-radius:var(--r-sm);padding:10px 12px;margin:0}
+
+/* The path rail — the one bold element. */
+.rail{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));padding:var(--sp5) var(--sp4) var(--sp4);position:relative}
+.rail::before{content:"";position:absolute;left:calc(100%/12);right:calc(100%/12);top:calc(var(--sp5) + 21px);height:2px;background:linear-gradient(90deg,var(--line2),var(--accent-soft),var(--line2))}
+.node{all:unset;cursor:pointer;position:relative;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:0 6px 6px;border-radius:var(--r-md)}
+.node:focus-visible{outline:2px solid var(--accent)}
+.node .disc{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;background:var(--glass-solid);border:2px solid var(--line2);box-shadow:inset 0 1px 0 var(--spec),0 4px 12px rgba(0,0,0,.2)}
+.node .disc svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.node.pass .disc{border-color:var(--ok);color:var(--ok)} .node.warn .disc{border-color:var(--warn);color:var(--warn)}
+.node.fail .disc{border-color:var(--fail);color:var(--fail)} .node.unknown .disc{border-style:dashed;color:var(--unk)}
+.node .st{align-self:center}
+.node b{font-size:13px} .node span{font-size:12px;color:var(--text2);max-width:18ch;line-height:1.35}
+.node[aria-pressed=true] .disc{box-shadow:0 0 0 4px var(--accent-soft)}
+
+.issues{display:flex;flex-direction:column}
+.issue{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+.issue:first-of-type{border-top:0}
+.issue p{font-size:13px;color:var(--text2);margin-top:2px}
+.banner{padding:var(--sp4) var(--sp5);display:flex;gap:var(--sp3);align-items:flex-start}
+.banner.vantage{border-color:color-mix(in oklab,var(--warn) 45%,var(--rim))}
+
+/* ---------- Charts ---------- */
+.chart{width:100%;height:auto;display:block;overflow:visible}
+.chart .grid{stroke:var(--line);stroke-width:1}
+.chart .axis{fill:var(--text3);font:12px var(--sans)}
+.chart .ln{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.chart .pt{stroke:var(--bg0);stroke-width:1.5}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12px;color:var(--text2);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend span::before{content:"";width:10px;height:3px;border-radius:2px;background:var(--c)}
+.bars{display:flex;flex-direction:column;gap:8px}
+.bar{display:grid;grid-template-columns:minmax(90px,170px) minmax(0,1fr) 64px;gap:10px;align-items:center;font-size:13px}
+.bar .lbl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text2)}
+.bar .tr{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.bar .tr i{display:block;height:100%;border-radius:4px;background:var(--accent)}
+.bar .tr i.sys{background:var(--teal)}
+.bar .v{text-align:right;font-family:var(--mono);font-size:12px}
+.empty{padding:var(--sp5);text-align:center;color:var(--text2);font-size:14px}
+
+/* ---------- Settings rows ---------- */
+.group{padding:4px 0}
+.group>h3{padding:var(--sp4) var(--sp5) var(--sp2)}
+.group>.gnote{padding:0 var(--sp5) var(--sp2);font-size:13px;color:var(--text2);display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.row{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--sp4);padding:12px var(--sp5);min-height:56px;border-top:1px solid var(--line);cursor:pointer}
+.group>h3+.row,.group>.gnote+.row{border-top:0}
+.row:hover{background:color-mix(in oklab,var(--line) 50%,transparent)}
+.row:focus-within{outline:2px solid var(--accent);outline-offset:-2px;border-radius:var(--r-sm)}
+.row:has(.sw:focus-visible){outline:2px solid var(--accent)}
+.row .lab{min-width:0}
+.row .lab b{display:block;font-weight:550;font-size:15px}
+.row .lab small{display:block;color:var(--text2);font-size:13px;margin-top:2px;line-height:1.4}
+.row .ctl{justify-self:end;display:flex;align-items:center;gap:8px}
+.row.static{cursor:default}
+.row.static:hover{background:none}
+.row.static:focus-within{outline:none}
+/* Switch: fixed geometry, never shrinks. */
+.sw{appearance:none;-webkit-appearance:none;margin:0;flex:none;width:var(--switch-w);height:var(--switch-h);min-width:var(--switch-w);border-radius:var(--switch-h);background:var(--line2);position:relative;cursor:pointer;transition:background var(--dur)}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:calc(var(--switch-h) - 6px);height:calc(var(--switch-h) - 6px);border-radius:50%;background:#fff;box-shadow:0 2px 5px rgba(0,0,0,.3);transition:transform var(--dur)}
+.sw:checked{background:var(--ok)}
+.sw:checked::after{transform:translateX(calc(var(--switch-w) - var(--switch-h)))}
+.sw:focus-visible{outline:none}
+.sw[disabled]{opacity:.45}
+input.f,select.f,textarea.f{font:inherit;font-size:14px;color:var(--text);background:var(--line);border:1px solid var(--line2);border-radius:var(--r-sm);padding:7px 10px;min-height:36px}
+input.f:focus,select.f:focus,textarea.f:focus{outline:2px solid var(--accent);outline-offset:0}
+input.f.num{width:84px;text-align:right}
+textarea.f{width:100%;min-height:76px;font-family:var(--mono);font-size:12.5px;resize:vertical}
+.block{padding:12px var(--sp5) var(--sp4);border-top:1px solid var(--line)}
+.block label{display:block;font-weight:550;margin-bottom:6px}
+.block small{display:block;color:var(--text2);font-size:13px;margin-top:6px}
+details.adv{border-top:1px solid var(--line)}
+details.adv>summary{list-style:none;cursor:pointer;padding:14px var(--sp5);font-weight:600;display:flex;justify-content:space-between;align-items:center}
+details.adv>summary::-webkit-details-marker{display:none}
+details.adv>summary::after{content:"";width:8px;height:8px;border-right:2px solid var(--text3);border-bottom:2px solid var(--text3);transform:rotate(45deg);transition:transform var(--dur)}
+details.adv[open]>summary::after{transform:rotate(225deg)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--r-pill);border:1px solid var(--line2);font-size:13px;cursor:pointer;color:var(--text2)}
+.chip input{margin:0;accent-color:var(--accent)}
+.chip:has(input:checked){background:var(--accent-soft);color:var(--text);border-color:transparent}
+.chip:focus-within{outline:2px solid var(--accent)}
+.actions{display:flex;gap:var(--sp2);flex-wrap:wrap;padding:var(--sp4) var(--sp5);border-top:1px solid var(--line);align-items:center}
+.actions .grow{flex:1}
+
+/* ---------- Results ---------- */
+.tabs{display:flex;gap:4px;overflow-x:auto;padding:3px;border-radius:var(--r-pill);background:var(--line);margin-bottom:var(--sp4);width:fit-content;max-width:100%;box-sizing:border-box}
+.tabs button{all:unset;cursor:pointer;padding:7px 14px;border-radius:var(--r-pill);font-size:13px;font-weight:600;color:var(--text2);white-space:nowrap}
+.tabs button[aria-selected=true]{background:var(--glass-strong);color:var(--text);box-shadow:inset 0 1px 0 var(--spec)}
+.tabs button:focus-visible{outline:2px solid var(--accent)}
+.filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:var(--sp3)}
+details.finding{padding:0;margin-bottom:10px;border-radius:var(--r-md)}
+details.finding>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;align-items:center;padding:14px 18px}
+details.finding>summary::-webkit-details-marker{display:none}
+details.finding .t{font-weight:600}
+details.finding .t small{display:block;font-weight:400;color:var(--text3);font-size:12px;margin-top:2px}
+details.finding .body{padding:0 18px 16px 18px;font-size:14px;color:var(--text2);display:flex;flex-direction:column;gap:10px}
+details.finding ul{margin:0;padding-left:18px;font-family:var(--mono);font-size:12px;overflow-wrap:anywhere}
+details.finding .body p,.fix{overflow-wrap:anywhere}
+.fix{background:var(--accent-soft);color:var(--text);padding:10px 12px;border-radius:var(--r-sm)}
+.tw{overflow:auto;border-radius:var(--r-md)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th{position:sticky;top:0;text-align:left;font-weight:600;color:var(--text2);padding:10px 12px;border-bottom:1px solid var(--line2);background:var(--glass-solid);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+tr.click{cursor:pointer}
+tr.click:hover td{background:var(--line)}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--unk)}
+.dot.pass{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.fail{background:var(--fail)} .dot.info{background:var(--accent)} .dot.skip,.dot.unknown{background:transparent;border:1.5px dashed var(--unk)}
+.tag{display:inline-block;padding:1px 8px;border-radius:var(--r-pill);background:var(--line);font-size:12px;white-space:nowrap}
+.tag.good{background:var(--ok-soft);color:var(--ok)} .tag.bad{background:var(--fail-soft);color:var(--fail)} .tag.meh{background:var(--warn-soft);color:var(--warn)}
+.kv{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 18px;font-size:13px}
+.kv>div:nth-child(odd){color:var(--text2)}
+.big{font-size:30px;font-weight:650;letter-spacing:-.02em}
+.big small{font-size:13px;font-weight:500;color:var(--text2);margin-left:6px}
+pre.raw{margin:0;white-space:pre-wrap;word-break:break-word;font:12px/1.55 var(--mono);color:var(--text2);padding:var(--sp4);max-height:70vh;overflow:auto}
+.phb{display:flex;height:10px;border-radius:5px;overflow:hidden;min-width:140px;background:var(--line)}
+.phb i{display:block;height:100%}
+.ph-dns{background:var(--teal)} .ph-con{background:var(--ice)} .ph-tls{background:#9FB3C8} .ph-ttfb{background:var(--ok)} .ph-dl{background:var(--silver)}
+.spark{display:flex;align-items:flex-end;gap:2px;height:36px;margin-top:12px}
+.spark i{flex:1;background:var(--accent);border-radius:2px 2px 0 0;min-height:3px;opacity:.85}
+.spark i.lost{background:var(--fail);height:100%;opacity:.5}
+.exportbar{display:flex;flex-wrap:wrap;gap:var(--sp2);align-items:center}
+
+/* ---------- History ---------- */
+.hrow{display:grid;grid-template-columns:auto minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) auto;gap:var(--sp4);align-items:center;padding:14px var(--sp5);border-top:1px solid var(--line)}
+.hrow:first-child{border-top:0}
+.hrow .when b{display:block}
+.hrow .when small,.hrow .m small{display:block;color:var(--text2);font-size:12px}
+.hrow .btns{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.hrow input[type=checkbox]{width:18px;height:18px;accent-color:var(--accent)}
+.pin[aria-pressed=true]{color:var(--auto);background:var(--auto-soft)}
+.delta.better{color:var(--ok)} .delta.worse{color:var(--fail)}
+
+/* ---------- Login & toast ---------- */
+.login{min-height:100vh;display:grid;place-items:center;padding:var(--sp4)}
+.login form{width:min(380px,100%);padding:var(--sp6);display:flex;flex-direction:column;gap:var(--sp4)}
+.login input{width:100%}
+.err{color:var(--fail);font-size:13px;min-height:1.2em}
+.toast{position:fixed;left:50%;bottom:28px;transform:translate(-50%,20px);opacity:0;padding:10px 18px;border-radius:var(--r-pill);font-size:14px;font-weight:550;transition:opacity .2s,transform .2s;z-index:50;pointer-events:none}
 .toast.show{opacity:1;transform:translate(-50%,0)}
-.gap-wide{gap:18px 22px}
-.path{display:flex;align-items:stretch;gap:0;margin:18px 0 4px;overflow-x:auto;padding:4px 2px}
-.node{flex:1;min-width:150px;padding:14px 16px;border-radius:var(--r-lg);cursor:pointer;transition:transform .2s}
-.node:hover{transform:translateY(-2px)}
-.node.sel{box-shadow:inset 0 0 0 2px var(--tint2),0 18px 50px rgba(0,0,0,.42)}
-.node b{display:flex;align-items:center;gap:8px;font-size:14px}
-.node span{display:block;margin-top:6px;font-size:12px;color:var(--label2);line-height:1.35}
-.node.unknown{background:rgba(18,20,26,.55);box-shadow:none;outline:1.5px dashed rgba(235,235,245,.28);outline-offset:-2px;opacity:.8}
-.node.unknown::before{display:none}
-.node.unknown b{color:var(--label2)}
-.link{flex:none;width:22px;align-self:center;height:2px;background:linear-gradient(90deg,rgba(255,255,255,.25),rgba(255,255,255,.08))}
-.dot.unknown{background:transparent;box-shadow:inset 0 0 0 2px rgba(235,235,245,.4)}
-.v-partial .orb{background:radial-gradient(circle at 35% 30%,#9AD7FF,var(--tint) 55%,#0B4F99);--orbglow:rgba(10,132,255,.4)}
-.runhead{display:flex;align-items:center;gap:12px}
-.runhead strong{font-size:18px;letter-spacing:-.02em}
-.runhead .mono{font-size:15px}
-.livewrap{max-height:340px;background:rgba(0,0,0,.18)}
-.v-cancelled .orb{background:radial-gradient(circle at 35% 30%,#C7C7CC,var(--gray) 55%,#5b5b60);--orbglow:rgba(142,142,147,.4)}
-.conf{display:inline-block;font:600 10.5px var(--sans);letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:999px;margin-left:2px}
-.conf.confirmed{color:var(--green);background:rgba(48,209,88,.12)}
-.conf.suspected{color:var(--orange);background:rgba(255,159,10,.13)}
-.conf.inconclusive{color:var(--label2);background:rgba(255,255,255,.08)}
-.gaps{margin-bottom:16px;padding:16px 20px;border-radius:var(--r-lg)}
-.gaps h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--orange)}
-.gaps li{color:var(--label2);font-size:13px;margin:3px 0}
-.privacy{display:inline-flex}
-.privacy .seg button{padding:7px 13px;font-size:12.5px;white-space:nowrap}
-.phasebar{display:flex;height:10px;border-radius:999px;overflow:hidden;min-width:180px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 2px rgba(0,0,0,.4)}
-.phasebar i{display:block;height:100%}
-.ph-dns{background:#BF5AF2}.ph-con{background:var(--tint2)}.ph-tls{background:var(--orange)}.ph-ttfb{background:var(--green)}.ph-dl{background:var(--gray)}
-.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--label2);margin:0 4px 10px}
-.legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:-1px;background:var(--c)}
-footer{color:var(--label3);font-size:12.5px;text-align:center;padding:30px}
-@media (max-width:960px){.hero,.grid2,.grid3{grid-template-columns:1fr}.phases{grid-template-columns:repeat(4,1fr)}.verdict{flex-wrap:wrap}.counts{margin-left:0}.hero h1{font-size:34px}.feature-grid{grid-template-columns:1fr}}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* ---------- Responsive ---------- */
+@media (max-width:1080px){.grid3{grid-template-columns:repeat(2,minmax(0,1fr))}.hrow{grid-template-columns:auto minmax(0,1fr) minmax(0,1fr) auto}.hrow .hide-md{display:none}}
+@media (max-width:860px){
+  .shell{grid-template-columns:minmax(0,1fr)}
+  .side{position:fixed;inset:auto 0 0 0;height:auto;z-index:20;padding:6px 8px calc(6px + env(safe-area-inset-bottom));flex-direction:row;border-radius:0;border-left:0;border-right:0;border-bottom:0}
+  .brand,.side .foot{display:none}
+  .nav{flex-direction:row;justify-content:space-around;width:100%}
+  .nav button{flex-direction:column;gap:2px;font-size:11px;padding:6px 8px}
+  main{padding:var(--sp5) 14px 110px}
+  .hero{grid-template-columns:1fr;padding:var(--sp5)}
+  .hero .act{align-items:stretch}
+  .grid2,.grid3{grid-template-columns:1fr}
+  .rail{grid-template-columns:repeat(3,minmax(0,1fr));row-gap:var(--sp4)}
+  .rail::before{display:none}
+  .hrow{grid-template-columns:auto minmax(0,1fr);row-gap:8px}
+  .hrow .m{grid-column:2}
+  .hrow .btns{grid-column:1/-1;justify-content:flex-start}
+  h1{font-size:24px}
+}
+@media (max-width:420px){.rail{grid-template-columns:repeat(2,minmax(0,1fr))}.row{padding:12px var(--sp4)}}
 </style>
 </head>
 <body>
-<div class="wallpaper"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
-<div class="grain"></div>
-
-<header class="topbar glass strong">
-  <div class="logo"><div class="mark"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7" fill="none" stroke="white" stroke-width="2.2"/><circle cx="12" cy="12" r="2.4" fill="white"/></svg></div>SAdns</div>
-  <span class="ver" id="ver"></span>
-  <span class="spacer"></span>
-  <div class="tints" id="tints" title="Tint"></div>
-  <span class="host" id="host"></span>
-  <button class="btn small plain" id="quit" title="Stop the SAdns program">Quit</button>
-</header>
-
-<main>
-  <!-- START -->
-  <section id="v-start" class="hero">
-    <div class="glass intro">
-      <h1><span>Every layer of your DNS,</span><br>tested.</h1>
-      <p>Your OS resolver path, router DNS and every major public resolver, over IPv4 and IPv6. It also checks failover, DNSSEC, encrypted DNS, interception, MTU, time sync, captive portals and routing. The result is a detailed report ready for an AI assistant or a network engineer.</p>
-      <button class="btn tinted big" id="run">Run diagnostics</button>
-      <div class="feature-grid">
-        <div class="feat"><i>⇅</i>IPv4 / IPv6 &amp; dual-stack</div><div class="feat"><i>⟳</i>Failover &amp; redundancy</div>
-        <div class="feat"><i>⌂</i>Router &amp; local DNS health</div><div class="feat"><i>◎</i>Cloudflare · Google · Quad9 · more</div>
-        <div class="feat"><i>⚿</i>DNSSEC · DoT · DoH · DDR</div><div class="feat"><i>⚑</i>Interception &amp; hijacking</div>
-        <div class="feat"><i>▤</i>EDNS · TCP · MTU · fragments</div><div class="feat"><i>⌁</i>Ping, NTP, captive portal</div>
-      </div>
-    </div>
-    <div class="glass opts">
-      <div class="label">Scan</div>
-      <div class="seg" id="mode"><button data-v="full" class="on">Full scope</button><button data-v="quick">Quick</button></div>
-      <div class="field"><div class="label">Public resolvers</div><div class="chips" id="provs"></div></div>
-      <div class="field row gap-wide">
-        <label class="switch"><input type="checkbox" id="o-v4" checked>IPv4</label>
-        <label class="switch"><input type="checkbox" id="o-v6" checked>IPv6</label>
-        <label class="switch"><input type="checkbox" id="o-enc" checked>DoT / DoH</label>
-        <label class="switch"><input type="checkbox" id="o-tr" checked>Traceroute</label>
-        <label class="switch" title="Off (default): full-quality tests — 3 website samples, up to 20 MiB per custom URL. On: 1 website sample per address family, 512 KiB per response, 10 MiB of HTTP downloads per scan. DNS, ping, routing, TLS and IPv4/IPv6 tests always run."><input type="checkbox" id="o-low">Low Data Mode</label>
-      </div>
-      <div class="field row">
-        <div><div class="label">Latency samples</div><input type="number" id="o-samples" min="1" max="50" value="5"></div>
-        <div><div class="label">Timeout (ms)</div><input type="number" id="o-timeout" min="200" max="15000" value="2000"></div>
-      </div>
-      <div class="field"><div class="label">Websites to time (optional)</div><input type="text" id="o-urls" placeholder="A slow site or image URL, e.g. reddit.com, https://i.redd.it/…jpg"></div>
-      <div class="field"><div class="label">Extra resolvers</div><input type="text" id="o-extra" placeholder="Pi-hole, AdGuard Home… e.g. 192.168.1.2, 10.0.0.53:5353"></div>
-      <p class="small">Runs entirely on this computer. Nothing is uploaded; the only traffic is the test queries themselves.</p>
-    </div>
-  </section>
-
-  <!-- RUNNING -->
-  <section id="v-run" class="glass runpanel hidden">
-    <div class="runhead">
-      <strong id="run-msg">Starting…</strong><span class="spacer"></span><span class="mono" id="run-pct">0%</span>
-      <button class="btn small" id="cancel">Cancel</button>
-    </div>
-    <div class="prog"><div id="bar"></div></div>
-    <div class="phases" id="phases"></div>
-    <div class="tw livewrap"><table><thead><tr><th>Resolver</th><th>Address</th><th>Reach</th><th>Median</th><th>DNSSEC</th><th>Filter</th><th>Rebind</th></tr></thead><tbody id="live"></tbody></table></div>
-    <div class="log" id="log"></div>
-  </section>
-
-  <!-- RESULTS -->
-  <section id="v-res" class="hidden">
-    <div class="glass verdict" id="verdict"></div>
-    <div class="path" id="path"></div>
-    <div class="actions">
-      <button class="btn tinted" id="copy-ai">Copy report for AI</button>
-      <button class="btn" id="dl-md">Markdown ↓</button>
-      <button class="btn" id="dl-json">JSON ↓</button>
-      <div class="privacy" title="What the copied/downloaded report hides"><div class="seg" id="privacy"><button data-v="public" title="Also hides LAN IPs and internal domains — safe to post publicly">Public-safe</button><button data-v="technical" class="on" title="Hides your public IPs, IPv6 prefix, hostname and MACs; keeps LAN layout">Technical</button><button data-v="full" title="Nothing hidden — only for people you trust">Full</button></div></div>
-      <span class="spacer"></span>
-      <button class="btn" id="again">New scan</button>
-    </div>
-    <nav class="tabbar glass strong" id="tabs">
-      <button class="tab on" data-t="findings">Findings</button>
-      <button class="tab" data-t="resolvers">Resolvers</button>
-      <button class="tab" data-t="network">Network health</button>
-      <button class="tab" data-t="conn">Connectivity &amp; IPv6</button>
-      <button class="tab" data-t="system">System</button>
-      <button class="tab" data-t="routing">Routing &amp; interception</button>
-      <button class="tab" data-t="report">AI report</button>
-    </nav>
-    <div id="t-findings"></div>
-    <div id="t-resolvers" class="hidden"></div>
-    <div id="t-network" class="hidden"></div>
-    <div id="t-conn" class="hidden"></div>
-    <div id="t-system" class="hidden"></div>
-    <div id="t-routing" class="hidden"></div>
-    <div id="t-report" class="hidden"></div>
-  </section>
-</main>
-<footer>SAdns is open source — <span id="repo"></span></footer>
-<div class="toast glass strong" id="toast"></div>
-
+<div class="wall" aria-hidden="true"></div>
+<div id="app"></div>
+<div id="toast" class="toast glass strong" role="status" aria-live="polite"></div>
 <script>
 "use strict";
-// The one-time token arrives in the URL; the server swaps it for an HttpOnly
-// session cookie, so remove it from the address bar and history right away.
-let TOKEN = new URLSearchParams(location.search).get("token") || "";
-if (location.search) history.replaceState(null, "", "/");
+// ======================================================================
+// Helpers. The DOM is built only with h()/fill(): strings become text
+// nodes, never HTML. Styles set from script use the CSSOM (allowed by CSP).
+// ======================================================================
 const $ = (id) => document.getElementById(id);
-// h(): build DOM safely — every string becomes a text node (never innerHTML).
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   if (attrs) for (const [k, v] of Object.entries(attrs)) {
     if (v == null || v === false) continue;
     if (k === "class") el.className = v;
-    else if (k === "style") el.style.cssText = v; // CSSOM: allowed under the hashed CSP
+    else if (k === "style") el.style.cssText = v;
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "checked" || k === "value" || k === "disabled" || k === "selected") el[k] = v;
     else el.setAttribute(k, v === true ? "" : v);
   }
-  for (const kid of kids.flat(Infinity)) {
-    if (kid == null || kid === false) continue;
-    el.appendChild(kid instanceof Node ? kid : document.createTextNode(String(kid)));
-  }
+  add(el, kids);
   return el;
 }
-function fill(el, ...kids) { el.replaceChildren(); for (const k of kids.flat(Infinity)) { if (k == null || k === false) continue; el.appendChild(k instanceof Node ? k : document.createTextNode(String(k))); } }
-const api = (path, opts = {}) => fetch(path, { credentials: "same-origin", ...opts, headers: { ...(opts.headers || {}), "X-SAdns-Token": TOKEN } });
-function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2400); }
-const fmtBytes = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MiB" : n >= 1024 ? Math.round(n / 1024) + " KiB" : (n || 0) + " B";
-const OUTCOME = { "complete-verified": ["complete ✓ verified", "good"], complete: ["complete (length unknown)", ""], sampled: ["limited sample", "meh"], "budget-limited": ["budget reached — not tested", ""], failed: ["failed", "bad"] };
+function add(el, kids) { for (const k of [kids].flat(Infinity)) { if (k == null || k === false) continue; el.appendChild(k instanceof Node ? k : document.createTextNode(String(k))); } return el; }
+function fill(el, ...kids) { el.replaceChildren(); return add(el, kids); }
+const SVGNS = "http://www.w3.org/2000/svg";
+function s(tag, attrs, ...kids) { const el = document.createElementNS(SVGNS, tag); for (const [k, v] of Object.entries(attrs || {})) if (v != null) { if (k === "style") el.style.cssText = v; else el.setAttribute(k, v); } for (const k of kids.flat()) if (k != null) el.appendChild(k instanceof Node ? k : document.createTextNode(String(k))); return el; }
+const ICONS = {
+  dashboard: "M4 13h6V4H4zM14 20h6v-9h-6zM4 20h6v-3H4zM14 7h6V4h-6z",
+  results: "M5 4h14v16H5zM9 9h6M9 13h6M9 17h3",
+  history: "M3 12a9 9 0 1 0 3-6.7M3 4v4h4M12 7v5l3 2",
+  trends: "M3 17l6-6 4 4 8-8M15 7h6v6",
+  settings: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z",
+  device: "M5 5h14v10H5zM9 19h6M12 15v4",
+  lan: "M2 9a15 15 0 0 1 20 0M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01",
+  gateway: "M4 14h16v5H4zM8 14V9M16 14V9M7.5 17h.01M11 17h.01",
+  internet: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18",
+  dns: "M4 6h16M4 12h16M4 18h10M18 16l2 2-2 2",
+  web: "M4 5h16v14H4zM4 9h16M7 7h.01M10 7h.01",
+};
+const icon = (k) => s("svg", { viewBox: "0 0 24 24", "aria-hidden": "true" }, s("path", { d: ICONS[k] }));
+
 const fmtMs = (v) => v == null || v === 0 ? "—" : (v < 10 ? v.toFixed(1) : Math.round(v)) + " ms";
-const sevLabel = { fail: "FAIL", warn: "WARN", info: "INFO", pass: "PASS", skip: "SKIP" };
-const dot = (s) => h("span", { class: "dot " + (s || "skip"), title: s || "n/a" });
-const tbl = (head, rows, glass = true) => h("div", { class: "tw" + (glass ? " glass" : "") }, h("table", null, h("thead", null, h("tr", null, head.map((x) => h("th", null, x)))), h("tbody", null, rows)));
+const fmtBytes = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MiB" : n >= 1024 ? Math.round(n / 1024) + " KiB" : (n || 0) + " B";
+const zeroTime = (t) => !t || t.startsWith("0001-");
+const when = (t) => zeroTime(t) ? "—" : new Date(t).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+const TZ = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "local time"; } })();
+function rel(t) {
+  if (zeroTime(t)) return "";
+  const d = (new Date(t) - Date.now()) / 60000, a = Math.abs(d);
+  const txt = a < 1 ? "less than a minute" : a < 60 ? Math.round(a) + " min" : a < 2880 ? (a / 60).toFixed(a < 600 ? 1 : 0) + " h" : Math.round(a / 1440) + " days";
+  return d >= 0 ? "in " + txt : txt + " ago";
+}
+const dur = (sec) => sec == null ? "—" : sec < 60 ? sec.toFixed(1) + " s" : Math.floor(sec / 60) + " min " + Math.round(sec % 60) + " s";
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2600); }
+const dot = (st) => h("span", { class: "dot " + (st || "skip"), role: "img", "aria-label": st || "not run" });
 const tag = (v, good, bad = [], meh = []) => h("span", { class: "tag " + (v === good ? "good" : bad.includes(v) ? "bad" : meh.includes(v) ? "meh" : "") }, v || "—");
+const tbl = (head, rows) => h("div", { class: "tw glass" }, h("table", null, h("thead", null, h("tr", null, head.map((x) => h("th", { scope: "col" }, x)))), h("tbody", null, rows)));
 
-// ---- Tint (persisted per browser; storage can be unavailable) ----
-const TINTS = [["Blue", "#0A84FF", "#64D2FF"], ["Teal", "#30B0C7", "#63E6E2"], ["Indigo", "#5E5CE6", "#BF5AF2"], ["Pink", "#FF375F", "#FF9F0A"], ["Orange", "#FF9F0A", "#FFD60A"], ["Green", "#30D158", "#66D4CF"], ["Graphite", "#8E8E93", "#C7C7CC"]];
-function setTint(i) {
-  const [, a, b] = TINTS[i] || TINTS[0];
-  document.documentElement.style.setProperty("--tint", a);
-  document.documentElement.style.setProperty("--tint2", b);
-  document.querySelectorAll("#tints button").forEach((x, j) => x.classList.toggle("on", j === i));
-  try { localStorage.setItem("sadns-tint", String(i)); } catch {}
+// Status vocabulary: Healthy / Warning / Failed / Unknown / Not tested.
+const ST = {
+  ok: ["ok", "Healthy", "✓"], warn: ["warn", "Warning", "!"], fail: ["fail", "Failed", "✕"], unknown: ["unknown", "Unknown", "?"], untested: ["untested", "Not tested", ""],
+  info: ["info", "Info", "i"], auto: ["auto", "Auto Run", "↻"],
+};
+function stPill(kind, text) { const [c, label, g] = ST[kind] || ST.unknown; return h("span", { class: "st " + c }, h("i", { "aria-hidden": "true" }, h("b", null, g)), text || label); }
+const layerKind = (s) => ({ pass: "ok", warn: "warn", fail: "fail" }[s] || "untested");
+const sevKind = (s) => ({ pass: "ok", warn: "warn", fail: "fail", info: "info" }[s] || "unknown");
+const VERDICT = {
+  healthy: ["ok", "Healthy", "Everything that was tested checks out"],
+  partial: ["ok", "Healthy, partly tested", "No problems found, but some areas could not be tested"],
+  degraded: ["warn", "Warning", "Working, with issues worth fixing"],
+  problems: ["fail", "Failed checks", "Problems found that affect browsing"],
+  cancelled: ["unknown", "Incomplete", "The scan was stopped before it finished"],
+};
+const verdictOf = (v) => VERDICT[v] || ["untested", "Not tested yet", "Run diagnostics to check this network"];
+
+// ======================================================================
+// State & API
+// ======================================================================
+const S = { info: null, csrf: "", report: null, reportId: "", history: [], retain: 100, sched: null, prefs: null,
+  running: null, progress: 0, phase: "", log: [], live: [], es: null, privacy: "technical", depth: "quick",
+  layer: "", fFilter: "issues", tab: "findings", compare: [], cmp: null, trends: null };
+try { S.depth = localStorage.getItem("sadns-depth") || "quick"; S.privacy = localStorage.getItem("sadns-privacy") || "technical"; } catch {}
+
+async function api(path, opts = {}) {
+  const headers = { ...(opts.headers || {}) };
+  let body = opts.body;
+  if (opts.json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(opts.json); }
+  const method = opts.method || "GET";
+  if (method !== "GET") headers["X-SAdns-CSRF"] = S.csrf;
+  const r = await fetch(path, { method, headers, body, credentials: "same-origin" });
+  if (r.status === 401) { showLogin(); throw new Error("Sign in required"); }
+  return r;
 }
-fill($("tints"), TINTS.map(([n, a, b], i) => h("button", { title: n, style: `background:linear-gradient(135deg,${b},${a})`, onclick: () => setTint(i) })));
-let savedTint = 0; try { savedTint = +(localStorage.getItem("sadns-tint") || 0); } catch {}
-setTint(savedTint);
+async function errOf(r) { try { const j = await r.json(); return j.error || r.statusText; } catch { return r.statusText; } }
+async function jget(p) { const r = await api(p); if (!r.ok) throw new Error(await errOf(r)); return r.json(); }
+async function jsend(method, p, json) { const r = await api(p, { method, json }); if (!r.ok) throw new Error(await errOf(r)); return r.status === 204 ? null : r.json(); }
 
-// ---- Pointer-tracking specular highlight on glass ----
-document.addEventListener("pointermove", (e) => {
-  const g = e.target.closest && e.target.closest(".glass");
-  if (!g) return;
-  const r = g.getBoundingClientRect();
-  g.style.setProperty("--mx", (e.clientX - r.left) + "px");
-  g.style.setProperty("--my", (e.clientY - r.top) + "px");
-}, { passive: true });
+// ======================================================================
+// Appearance: auto / light / dark, and reduced transparency.
+// ======================================================================
+const mq = matchMedia("(prefers-color-scheme: light)");
+function pref(k, d) { try { return localStorage.getItem(k) || d; } catch { return d; } }
+function setPref(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function applyAppearance() {
+  const t = pref("sadns-theme", "auto");
+  document.documentElement.dataset.theme = t === "auto" ? (mq.matches ? "light" : "dark") : t;
+  document.documentElement.dataset.transparency = pref("sadns-transparency", "normal");
+}
+mq.addEventListener("change", applyAppearance);
+applyAppearance();
 
-let info = null, report = null, mode = "full", es = null;
-const PHASES = [["system", "System"], ["connectivity", "Connectivity"], ["public-ip", "Public IP"], ["os-resolver", "OS resolver"], ["resolvers", "Resolvers"], ["interception", "Interception"], ["routing", "Routing"], ["done", "Report"]];
+// ======================================================================
+// Boot, login, shell
+// ======================================================================
+if (location.search.includes("token=")) history.replaceState(null, "", "/" + location.hash);
 
-async function init() {
-  const r = await api("/api/info");
-  if (!r.ok) { document.body.textContent = "Access denied — open the link shown in the SAdns console."; return; }
-  info = await r.json();
-  TOKEN = info.token || TOKEN;
-  $("ver").textContent = info.tool.version;
-  $("host").textContent = info.os + "/" + info.arch;
-  fill($("repo"), h("a", { href: info.tool.repo, target: "_blank", rel: "noopener" }, info.tool.repo.replace("https://", "")));
-  const sel = new Set(info.defaults.providers && info.defaults.providers.length ? info.defaults.providers : info.providers.map((p) => p.key));
-  for (const p of info.providers) {
-    const cb = h("input", { type: "checkbox", value: p.key });
-    cb.checked = sel.has(p.key);
-    const chip = h("label", { class: "chip" + (cb.checked ? " on" : ""), title: (p.v4 || []).concat(p.v6 || []).join(", ") }, cb, p.name);
-    cb.addEventListener("change", () => chip.classList.toggle("on", cb.checked));
-    $("provs").appendChild(chip);
-  }
-  $("o-samples").value = info.defaults.samples || 5;
-  $("o-timeout").value = info.defaults.timeout_ms || 2000;
-  $("o-tr").checked = info.defaults.traceroute; $("o-enc").checked = info.defaults.encrypted;
-  // Remember the Low Data preference per browser; new installs default to off.
-  let low = info.defaults.low_data;
-  try { const v = localStorage.getItem("sadns-lowdata"); if (v !== null) low = v === "1"; } catch {}
-  $("o-low").checked = !!low;
-  $("o-low").addEventListener("change", () => { try { localStorage.setItem("sadns-lowdata", $("o-low").checked ? "1" : "0"); } catch {} });
-  fill($("phases"), PHASES.map(([k, n]) => h("div", { class: "phase", id: "ph-" + k }, n)));
-  if (info.running || info.has_report) { show("run"); listen(); }
+async function boot() {
+  const r = await fetch("/api/v1/info", { credentials: "same-origin" });
+  if (r.status === 401) { showLogin(); return; }
+  if (!r.ok) { fill($("app"), h("div", { class: "login" }, h("div", { class: "glass card" }, h("h2", null, "SAdns"), h("p", { class: "muted" }, "Open the private link printed in the SAdns console window. It contains a one-time token.")))); return; }
+  S.info = await r.json();
+  S.csrf = S.info.csrf || "";
+  S.sched = S.info.schedule; S.prefs = S.info.preferences; S.running = S.info.current;
+  shell();
+  connect();
+  await loadHistory();
+  await loadLastReport();
+  route();
 }
 
-document.querySelectorAll("#mode button").forEach((b) => b.addEventListener("click", () => {
-  mode = b.dataset.v;
-  document.querySelectorAll("#mode button").forEach((x) => x.classList.toggle("on", x === b));
-  $("o-samples").value = mode === "quick" ? 3 : 5;
-  $("o-tr").checked = mode !== "quick";
-}));
+function showLogin() {
+  if (S.es) { S.es.close(); S.es = null; }
+  const user = h("input", { type: "text", autocomplete: "username", value: "sadns", class: "sr", tabindex: "-1", "aria-hidden": "true" });
+  const pw = h("input", { class: "f", type: "password", id: "pw", autocomplete: "current-password", required: true, "aria-describedby": "lerr" });
+  const err = h("div", { class: "err", id: "lerr", role: "alert" });
+  const form = h("form", { class: "glass strong", onsubmit: async (e) => {
+    e.preventDefault(); err.textContent = "";
+    const r = await fetch("/api/v1/login", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: pw.value }) });
+    if (r.ok) { pw.value = ""; boot(); return; }
+    err.textContent = r.status === 429 ? "Too many attempts. Wait five minutes and try again." : r.status === 401 ? "That password is not correct." : await errOf(r);
+  } },
+    h("div", { class: "brand" }, h("div", { class: "mark" }, h("i")), h("div", null, h("b", null, "SAdns"), h("br"), h("span", null, "DNS & network diagnostics"))),
+    h("h2", null, "Sign in"),
+    h("p", { class: "small muted" }, "Use the password printed in the SAdns log on first start, or the one set with SADNS_PASSWORD."),
+    user, h("label", { for: "pw", class: "sr" }, "Password"), pw, err,
+    h("button", { class: "btn primary big", type: "submit" }, "Sign in"));
+  fill($("app"), h("div", { class: "login" }, form));
+  pw.focus();
+}
 
-function show(v) { for (const x of ["start", "run", "res"]) $("v-" + x).classList.toggle("hidden", x !== v); window.scrollTo({ top: 0, behavior: "smooth" }); }
+const VIEWS = [["dashboard", "Dashboard"], ["results", "Results"], ["history", "History"], ["trends", "Trends"], ["settings", "Settings"]];
+function shell() {
+  fill($("app"), h("div", { class: "shell" },
+    h("aside", { class: "side glass strong" },
+      h("div", { class: "brand" }, h("div", { class: "mark" }, h("i")), h("div", null, h("b", null, "SAdns"), h("br"), h("span", null, S.info.tool.version))),
+      h("nav", { class: "nav", "aria-label": "Sections" }, VIEWS.map(([k, n]) => h("button", { id: "nav-" + k, onclick: () => { location.hash = "#/" + k; } }, icon(k), n))),
+      h("div", { class: "foot" },
+        h("span", null, S.info.mode === "server" ? "Server mode" : "This computer only"),
+        S.info.auth === "password" ? h("button", { class: "btn sm", onclick: logout }, "Sign out") : null,
+        S.info.mode === "desktop" ? h("button", { class: "btn sm", onclick: quit }, "Quit SAdns") : null)),
+    h("main", { id: "main", tabindex: "-1" })));
+}
+async function logout() { await api("/api/v1/logout", { method: "POST" }).catch(() => {}); showLogin(); }
+async function quit() {
+  if (!confirm("Stop SAdns? Scheduled scans also stop until you start it again.")) return;
+  await api("/api/v1/quit", { method: "POST" }).catch(() => {});
+  fill($("app"), h("div", { class: "login" }, h("div", { class: "glass card" }, h("h2", null, "SAdns has stopped."), h("p", { class: "muted" }, "You can close this tab."))));
+}
 
-$("run").addEventListener("click", async () => {
-  const body = {
-    quick: mode === "quick",
-    samples: +$("o-samples").value || 0,
-    timeout_ms: +$("o-timeout").value || 0,
-    providers: [...document.querySelectorAll("#provs input:checked")].map((c) => c.value),
-    low_data: $("o-low").checked,
-    no_providers: document.querySelectorAll("#provs input:checked").length === 0,
-    urls: $("o-urls").value.split(/[\s,]+/).filter(Boolean),
-    extra: $("o-extra").value.split(/[\s,]+/).filter(Boolean),
-    traceroute: $("o-tr").checked, encrypted: $("o-enc").checked,
-    ipv4: $("o-v4").checked, ipv6: $("o-v6").checked,
-  };
-  const r = await api("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  if (!r.ok) { toast(await r.text()); return; }
-  fill($("live")); $("log").textContent = "";
-  document.querySelectorAll(".phase").forEach((p) => p.className = "phase");
-  $("cancel").disabled = false;
-  show("run"); listen();
-});
+function route() {
+  const [, v, arg] = (location.hash || "#/dashboard").split("/");
+  const view = VIEWS.some(([k]) => k === v) ? v : "dashboard";
+  for (const [k] of VIEWS) { const b = $("nav-" + k); if (b) b.setAttribute("aria-current", k === view ? "page" : "false"); }
+  const m = $("main"); if (!m) return;
+  if (view === "results" && arg && arg !== S.reportId) { openReport(arg); return; }
+  ({ dashboard: viewDashboard, results: viewResults, history: viewHistory, trends: viewTrends, settings: viewSettings })[view](m);
+}
+window.addEventListener("hashchange", () => { route(); const m = $("main"); if (m) m.focus({ preventScroll: true }); scrollTo(0, 0); });
+const current = () => (location.hash.split("/")[1] || "dashboard");
+const rerender = (...views) => { if (views.includes(current())) route(); };
 
-function listen() {
-  if (es) es.close();
-  es = new EventSource("/api/events");
+// ======================================================================
+// Data loading & live events
+// ======================================================================
+async function loadHistory() { const d = await jget("/api/v1/history"); S.history = d.entries || []; S.retain = d.retain; }
+async function loadSched() { S.sched = await jget("/api/v1/schedule"); }
+async function loadLastReport() {
+  if (!S.history.length) return;
+  await fetchReport(S.history[0].id);
+}
+async function fetchReport(id) {
+  const r = await api("/api/v1/report?format=json&privacy=full" + (id ? "&id=" + encodeURIComponent(id) : ""));
+  if (!r.ok) return false;
+  S.report = await r.json(); S.reportId = id || ""; S.layer = ""; S.fFilter = "issues";
+  return true;
+}
+async function openReport(id) {
+  if (await fetchReport(id)) { S.tab = "findings"; viewResults($("main")); } else { toast("That scan is no longer stored."); location.hash = "#/history"; }
+}
+
+function connect() {
+  if (S.es) S.es.close();
+  const es = new EventSource("/api/v1/events");
+  S.es = es;
   es.onmessage = (m) => {
     const ev = JSON.parse(m.data);
-    const pct = Math.round((ev.progress || 0) * 100);
-    $("bar").style.width = pct + "%"; $("run-pct").textContent = pct + "%";
-    if (ev.message) {
-      if (ev.type === "phase") $("run-msg").textContent = ev.message;
-      const log = $("log"); log.textContent += (ev.type === "phase" ? "› " : "   ") + ev.message + "\n"; log.scrollTop = log.scrollHeight;
-    }
-    if (ev.type === "phase") {
-      let seen = false;
-      for (const [k] of PHASES.slice().reverse()) {
-        const el = $("ph-" + k);
-        if (k === ev.phase) { el.className = "phase active"; seen = true; }
-        else if (seen) el.className = "phase done";
-      }
-    }
-    if (ev.type === "resolver" && ev.resolver) {
-      const r = ev.resolver;
-      const skipped = r.tests && r.tests[0] && r.tests[0].status === "skip";
-      $("live").appendChild(h("tr", null, h("td", null, r.label), h("td", { class: "mono" }, r.addr),
-        h("td", null, dot(r.reachable ? "pass" : skipped ? "skip" : "fail")),
-        h("td", { class: "mono" }, fmtMs(r.latency && r.latency.median_ms)), h("td", null, tag(r.dnssec, "validating", ["inconsistent"])), h("td", null, tag(r.filtering)), h("td", null, tag(r.rebind_protection))));
-    }
-    if (ev.type === "done" && ev.report) {
-      es.close(); es = null; report = ev.report;
-      document.querySelectorAll(".phase").forEach((p) => p.className = "phase done");
-      renderResults(); show("res");
+    switch (ev.type) {
+      case "hello": S.running = ev.scan || null; S.log = []; S.live = []; S.progress = ev.scan ? ev.scan.progress : 0; break;
+      case "start": S.running = ev.scan; S.log = []; S.live = []; S.progress = 0; S.phase = "Starting"; rerender("dashboard"); break;
+      case "phase": case "log":
+        S.progress = ev.progress || S.progress;
+        if (ev.type === "phase") S.phase = ev.message;
+        if (ev.message) { S.log.push((ev.type === "phase" ? "› " : "  ") + ev.message); if (S.log.length > 400) S.log.shift(); }
+        updateProgress(); break;
+      case "resolver": if (ev.resolver) S.live.push(ev.resolver); break;
+      case "done":
+        if (!S.running && !ev.entry) break; // replay of an older scan; already loaded
+        S.running = null; S.progress = 1;
+        if (ev.report) { S.report = ev.report; S.reportId = ev.entry ? ev.entry.id : ""; S.layer = ""; }
+        if (ev.schedule) S.sched = ev.schedule;
+        loadHistory().then(() => rerender("dashboard", "history", "results", "trends"));
+        if (ev.message) toast(ev.message);
+        break;
+      case "schedule": if (ev.schedule) { S.sched = ev.schedule; rerender("dashboard", "settings"); } break;
+      case "history": loadHistory().then(() => rerender("history", "dashboard", "trends")); break;
     }
   };
+  es.onerror = () => { if (es.readyState === EventSource.CLOSED) setTimeout(connect, 3000); };
+}
+function updateProgress() {
+  const bar = $("pbar"); if (!bar) return;
+  bar.style.width = Math.round(S.progress * 100) + "%";
+  $("pphase").textContent = S.phase || "Working";
+  $("ppct").textContent = Math.round(S.progress * 100) + "%";
+  const lg = $("plog"); if (lg) { lg.textContent = S.log.join("\n"); lg.scrollTop = lg.scrollHeight; }
+  $("pwrap").setAttribute("aria-valuenow", String(Math.round(S.progress * 100)));
 }
 
-$("again").addEventListener("click", () => show("start"));
-$("cancel").addEventListener("click", async () => { $("cancel").disabled = true; await api("/api/cancel", { method: "POST" }); toast("Cancelling…"); });
-$("quit").addEventListener("click", async () => {
-  if (!confirm("Stop SAdns? The page will stop working.")) return;
-  await api("/api/quit", { method: "POST" }).catch(() => {});
-  fill(document.querySelector("main"), h("div", { class: "glass card", style: "padding:40px;text-align:center" }, h("h2", null, "SAdns has stopped."), h("p", { class: "small" }, "You can close this tab.")));
-});
-
-let privacy = "technical";
-document.querySelectorAll("#privacy button").forEach((b) => b.addEventListener("click", () => {
-  privacy = b.dataset.v;
-  document.querySelectorAll("#privacy button").forEach((x) => x.classList.toggle("on", x === b));
-  if (privacy === "full") toast("Full: your public IP and device details will be included");
-  if (!$("t-report").classList.contains("hidden")) renderReportTab();
-}));
-const rq = () => "&privacy=" + privacy;
-$("copy-ai").addEventListener("click", async () => {
-  if (privacy === "full" && !confirm("Copy the FULL report? It includes your public IP address, hostname and device identifiers.")) return;
-  const r = await api("/api/report.md?x=1" + rq());
-  const txt = await r.text();
-  try { await navigator.clipboard.writeText(txt); toast(`Copied (${privacy} privacy) — paste it into your AI assistant`); }
-  catch { selectTab("report"); toast("Clipboard blocked — select the text in the AI report tab"); }
-});
-function download(ext) {
-  const a = h("a", { href: "/api/report." + ext + "?download=1" + rq() });
-  document.body.appendChild(a); a.click(); a.remove();
+// ======================================================================
+// Scans
+// ======================================================================
+function runBody() {
+  const p = S.prefs || {};
+  const adv = advanced();
+  return { quick: S.depth === "quick", samples: adv.samples, timeout_ms: adv.timeout, providers: p.providers || [], no_providers: !!p.no_providers,
+    low_data: !!p.low_data, urls: p.urls || [], extra: p.extra_resolvers || [], traceroute: !!p.traceroute && S.depth !== "quick",
+    encrypted: !!p.encrypted, ipv4: !!p.ipv4, ipv6: !!p.ipv6 };
 }
-$("dl-md").addEventListener("click", () => download("md"));
-$("dl-json").addEventListener("click", () => download("json"));
+function advanced() { return { samples: +pref("sadns-samples", "0") || 0, timeout: +pref("sadns-timeout", "0") || 0 }; }
+async function runScan() {
+  try { await jsend("POST", "/api/v1/scans", runBody()); toast("Diagnostics started"); }
+  catch (e) { toast(e.message); }
+}
+async function cancelScan() { await jsend("POST", "/api/v1/scans/current/cancel").catch((e) => toast(e.message)); toast("Stopping. Partial results will be saved."); }
 
-const TABS = ["findings", "resolvers", "network", "conn", "system", "routing", "report"];
-document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => selectTab(t.dataset.t)));
-function selectTab(name) {
-  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.dataset.t === name));
-  for (const k of TABS) $("t-" + k).classList.toggle("hidden", k !== name);
-  if (name === "report") renderReportTab();
+// ======================================================================
+// Dashboard
+// ======================================================================
+function viewDashboard(m) {
+  const last = S.history[0];
+  const rep = S.report && (!last || S.reportId === last.id || !S.reportId) ? S.report : null;
+  const [kind, title, sub] = verdictOf(S.running ? "" : last && last.verdict);
+  const sc = S.sched || {};
+  const segDepth = h("div", { class: "seg", role: "group", "aria-label": "Scan depth" },
+    [["quick", "Quick"], ["full", "Full"]].map(([k, n]) => h("button", { "aria-pressed": String(S.depth === k), onclick: () => { S.depth = k; setPref("sadns-depth", k); route(); } }, n)));
+  const autoTxt = sc.status === "scheduled" ? "On, next " + rel(sc.state.next_run_at) : sc.status === "paused" ? "Paused" : sc.status === "running" ? "On" : "Off";
+  const hero = h("section", { class: "glass strong hero", "aria-labelledby": "vh" },
+    h("div", { class: "verdict" },
+      S.running ? stPill("info", "Running " + S.running.mode + " scan") : stPill(kind, title),
+      h("h1", { id: "vh" }, S.running ? "Checking your network" : last ? (last.headline || sub) : "Find out where your connection breaks"),
+      h("p", { class: "muted" }, S.running ? "Results appear here when the scan finishes. You can leave this page; the scan keeps running." : last ? sub : "SAdns checks this device, your Wi-Fi or LAN, the router, the internet path, DNS and websites, then writes a report you can hand to an AI assistant."),
+      h("div", { class: "meta" },
+        h("span", null, "Last scan ", h("b", null, last ? rel(last.finished_at || last.started_at) : "never")),
+        h("span", null, "Next scheduled ", h("b", null, sc.status === "scheduled" ? when(sc.state.next_run_at) : "none")),
+        h("span", null, "Auto Run ", h("b", null, autoTxt)))),
+    h("div", { class: "act" },
+      S.running ? h("button", { class: "btn big", onclick: cancelScan }, "Cancel scan") : h("button", { class: "btn primary big", onclick: runScan }, "Run diagnostics"),
+      S.running ? null : segDepth,
+      S.running ? null : h("span", { class: "small faint" }, (S.prefs && S.prefs.low_data ? "Low Data Mode" : "Standard data") + ", change in Settings")),
+    S.running ? h("div", { class: "progress" },
+      h("div", { class: "row1" }, h("span", { id: "pphase" }, S.phase || "Starting"), h("span", { id: "ppct" }, Math.round(S.progress * 100) + "%")),
+      h("div", { class: "track", id: "pwrap", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(Math.round(S.progress * 100)), "aria-label": "Scan progress" }, h("i", { id: "pbar" })),
+      h("details", null, h("summary", { class: "small muted" }, "Show live log"), h("pre", { class: "log", id: "plog" }, S.log.join("\n")))) : null);
+
+  const v = S.info.vantage || {};
+  const vant = v.in_container ? h("section", { class: "glass banner vantage" }, stPill("warn", "Container view"),
+    h("div", null, h("b", null, "Measured from inside a container (" + v.mode + ")"), h("p", { class: "small muted" }, v.note || ""),
+      (v.unavailable || []).length ? h("p", { class: "small faint" }, "Not measurable from here: " + v.unavailable.join("; ")) : null)) : null;
+
+  const layers = rep ? rep.summary.layers || [] : last && last.layers ? ["device", "lan", "gateway", "internet", "dns", "web"].map((k) => ({ key: k, status: last.layers[k] || "unknown" })) : [];
+  const names = { device: "This device", lan: "Wi-Fi / LAN", gateway: "Router", internet: "Internet", dns: "DNS", web: "Websites" };
+  const rail = h("section", { class: "glass rail", "aria-label": "Path overview" },
+    (layers.length ? layers : Object.keys(names).map((k) => ({ key: k, status: "unknown", note: "not tested" }))).map((l) =>
+      h("button", { class: "node " + (l.status || "unknown"), "aria-pressed": String(S.layer === l.key), title: "Show findings for " + (l.name || names[l.key]),
+        onclick: () => { if (!rep) { toast("Run diagnostics first"); return; } S.layer = l.key; S.fFilter = "all"; S.tab = "findings"; location.hash = "#/results"; } },
+        h("span", { class: "disc" }, icon(l.key)), h("b", null, l.name || names[l.key]), stPill(layerKind(l.status)), l.note ? h("span", null, l.note) : null)));
+
+  const issues = rep ? rep.findings.filter((f) => f.severity === "fail" || f.severity === "warn").slice(0, 4) : [];
+  const top = h("section", { class: "glass card" }, h("h3", null, "Top issues"),
+    !rep ? h("p", { class: "muted small" }, "No scan yet.") : issues.length ? h("div", { class: "issues" }, issues.map((f) => h("div", { class: "issue" }, stPill(sevKind(f.severity)),
+      h("div", null, h("b", null, f.title), h("p", null, f.recommendation || f.detail))))) : h("p", { class: "muted small" }, "No warnings or failures in the last scan."),
+    rep ? h("div", { style: "margin-top:12px" }, h("button", { class: "btn sm", onclick: () => { S.tab = "findings"; location.hash = "#/results"; } }, "View all results")) : null);
+
+  // Resolver comparison (median cached-query latency).
+  const res = rep ? rep.resolvers.filter((r) => r.latency && r.latency.received > 0) : [];
+  const maxL = Math.max(1, ...res.map((r) => r.latency.median_ms));
+  const resCard = h("section", { class: "glass card" }, h("h3", null, "Resolver response time"),
+    res.length ? h("div", { class: "bars" }, res.slice().sort((a, b) => a.latency.median_ms - b.latency.median_ms).slice(0, 10).map((r) =>
+      h("div", { class: "bar", title: r.addr }, h("span", { class: "lbl" }, r.label), h("span", { class: "tr" }, h("i", { class: r.role === "system" ? "sys" : "", style: "width:" + Math.max(2, 100 * r.latency.median_ms / maxL) + "%" })), h("span", { class: "v" }, fmtMs(r.latency.median_ms)))))
+      : h("p", { class: "muted small" }, "Shown after a scan."),
+    res.length ? h("div", { class: "legend" }, h("span", { style: "--c:var(--teal)" }, "Your configured DNS"), h("span", { style: "--c:var(--accent)" }, "Public resolvers")) : null);
+
+  const tr = trendPoints();
+  const dnsCard = h("section", { class: "glass card" }, h("h3", null, "DNS latency, recent scans"),
+    tr.length > 1 ? lineChart([{ name: "System resolver median", color: "var(--teal)", pts: tr.map((p) => [p.t, p.m.dns_measured ? (p.m.dns_median_ms || 0) : null]) }], "ms", 150) : h("p", { class: "muted small" }, "Appears after two or more scans."),
+    tr.length > 1 ? h("div", { style: "margin-top:8px" }, h("button", { class: "btn sm", onclick: () => location.hash = "#/trends" }, "Open trends")) : null);
+
+  const lossCard = rep ? h("section", { class: "glass card" }, h("h3", null, "Latency and loss"),
+    (rep.network_health.pings || []).length ? h("div", { class: "bars" }, rep.network_health.pings.map((p) => h("div", { class: "bar" },
+      h("span", { class: "lbl", title: p.label }, p.label.split(" — ")[0]), h("span", { class: "small muted" }, p.received ? p.loss_pct + "% loss" : p.error ? "not measured" : "no replies"), h("span", { class: "v" }, p.received ? fmtMs(p.avg_ms) : "—"))))
+      : h("p", { class: "muted small" }, "Ping was not available.")) : null;
+
+  const web = rep ? (rep.web_timings || []).filter((w) => w.ok_runs) : [];
+  const maxW = Math.max(1, ...web.map((w) => w.total_ms));
+  const webCard = rep ? h("section", { class: "glass card" }, h("h3", null, "Website timing"),
+    web.length ? [h("div", { class: "bars" }, web.slice(0, 8).map((w) => h("div", { class: "bar" }, h("span", { class: "lbl" }, w.host + (w.family ? " v" + w.family : "")), phaseBar(w, maxW), h("span", { class: "v" }, fmtMs(w.total_ms))))), phaseLegend()]
+      : h("p", { class: "muted small" }, "No successful website loads.")) : null;
+
+  fill(m, h("div", { class: "stack" }, hero, vant, rail, h("div", { class: "grid2" }, top, resCard), rep ? h("div", { class: "grid2" }, lossCard, webCard) : null, dnsCard));
 }
 
-// ------------------------------------------------------------------ results
-function renderResults() {
-  const s = report.summary;
-  const icon = { healthy: "✓", partial: "◐", degraded: "!", problems: "✕", cancelled: "■" }[s.verdict] || "?";
-  const title = { healthy: "Everything checks out", partial: "No problems found — not everything was tested", degraded: "Working, with issues", problems: "Problems found", cancelled: "Scan cancelled" }[s.verdict] || s.verdict;
-  fLayer = "";
-  renderPath();
-  const counts = [["f", "fail", s.fail], ["w", "warn", s.warn], ["i", "info", s.info], ["p", "pass", s.pass]];
-  $("verdict").className = "glass verdict v-" + s.verdict;
-  fill($("verdict"),
-    h("div", { class: "orb" }, icon),
-    h("div", null, h("h2", null, title), h("p", null, s.headline), h("p", { class: "small" }, `${report.duration_sec.toFixed(1)} s · ${report.resolvers.length} resolver addresses · ${(report.data_usage || {}).mode === "low-data" ? "Low Data Mode" : "Standard data"}: ${fmtBytes((report.data_usage || {}).http_body_bytes)} HTTP test downloads · ${new Date(report.started_at).toLocaleString()}`)),
-    h("div", { class: "counts" }, counts.map(([c, k, n]) => h("div", { class: "count " + c, onclick: () => { selectTab("findings"); filterFindings(k); } }, h("b", null, n), h("span", null, k)))));
-  renderFindings(); renderResolvers(); renderNetwork(); renderConn(); renderSystem(); renderRouting();
-  selectTab("findings");
+function phaseBar(w, max) {
+  return h("span", { class: "phb", title: `DNS ${fmtMs(w.dns_ms)}, connect ${fmtMs(w.connect_ms)}, TLS ${fmtMs(w.tls_ms)}, first byte ${fmtMs(w.ttfb_ms)}, transfer ${fmtMs(w.download_ms)}` },
+    [["ph-dns", w.dns_ms], ["ph-con", w.connect_ms], ["ph-tls", w.tls_ms], ["ph-ttfb", w.ttfb_ms], ["ph-dl", w.download_ms]].map(([c, v]) => h("i", { class: c, style: "width:" + (100 * (v || 0)) / max + "%" })));
+}
+const phaseLegend = () => h("div", { class: "legend" }, [["DNS", "var(--teal)"], ["Connect", "var(--ice)"], ["TLS", "#9FB3C8"], ["First byte", "var(--ok)"], ["Transfer", "var(--silver)"]].map(([n, c]) => h("span", { style: "--c:" + c }, n)));
+
+// ======================================================================
+// Charts (SVG, no libraries). Missing measurements break the line rather
+// than being drawn as zero.
+// ======================================================================
+function trendPoints() {
+  return S.history.filter((e) => e.source !== "imported").slice().reverse().map((e) => ({ t: new Date(e.started_at), m: e.metrics, e }));
+}
+function lineChart(series, unit, height = 180) {
+  const W = 460, H = height, L = 46, R = 12, T = 10, B = 24;
+  const xs = series.flatMap((s) => s.pts.map((p) => +p[0]));
+  const ys = series.flatMap((s) => s.pts.map((p) => p[1]).filter((v) => v != null));
+  if (!xs.length || !ys.length) return h("p", { class: "muted small" }, "Not measured in these scans.");
+  const x0 = Math.min(...xs), x1 = Math.max(...xs) || x0 + 1, ymax = Math.max(...ys) * 1.15 || 1;
+  const X = (t) => L + (x1 === x0 ? (W - L - R) / 2 : ((t - x0) / (x1 - x0)) * (W - L - R));
+  const Y = (v) => T + (1 - v / ymax) * (H - T - B);
+  const g = s("svg", { class: "chart", viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": series.map((x) => x.name).join(", ") + " over time" });
+  for (let i = 0; i <= 3; i++) {
+    const v = (ymax / 3) * i, y = Y(v);
+    g.appendChild(s("line", { class: "grid", x1: L, x2: W - R, y1: y, y2: y }));
+    g.appendChild(s("text", { class: "axis", x: L - 6, y: y + 4, "text-anchor": "end" }, (v < 10 && v > 0 ? v.toFixed(1) : Math.round(v)) + (i === 3 ? " " + unit : "")));
+  }
+  const dfmt = (t) => new Date(t).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  g.appendChild(s("text", { class: "axis", x: L, y: H - 6 }, dfmt(x0)));
+  if (x1 !== x0) g.appendChild(s("text", { class: "axis", x: W - R, y: H - 6, "text-anchor": "end" }, dfmt(x1)));
+  for (const se of series) {
+    let d = "", pen = false;
+    for (const [t, v] of se.pts) { if (v == null) { pen = false; continue; } d += (pen ? "L" : "M") + X(+t).toFixed(1) + " " + Y(v).toFixed(1); pen = true; }
+    if (d) g.appendChild(s("path", { class: "ln", d, style: "stroke:" + se.color }));
+    if (se.pts.length <= 60) for (const [t, v] of se.pts) if (v != null) g.appendChild(s("circle", { class: "pt", cx: X(+t), cy: Y(v), r: 3, style: "fill:" + se.color }, s("title", null, `${se.name}: ${v.toFixed(v < 10 ? 1 : 0)} ${unit}, ${dfmt(t)}`)));
+  }
+  const wrap = h("div", null, g);
+  if (series.length > 1) wrap.appendChild(h("div", { class: "legend" }, series.map((se) => h("span", { style: "--c:" + se.color }, se.name))));
+  return wrap;
 }
 
-let fFilter = "issues", fLayer = "";
-function filterFindings(k) { fFilter = k; renderFindings(); }
-// Path overview: device → LAN → router → internet → DNS → websites.
-// "unknown" (hollow, grey) means not tested — never drawn as healthy.
-function renderPath() {
-  const ls = report.summary.layers || [];
-  fill($("path"), ls.map((l, i) => [i ? h("div", { class: "link" }) : null,
-    h("div", { class: "glass node " + l.status + (fLayer === l.key ? " sel" : ""), title: "Show findings for this layer",
-      onclick: () => { fLayer = fLayer === l.key ? "" : l.key; fFilter = fLayer ? "all" : "issues"; renderPath(); selectTab("findings"); renderFindings(); } },
-      h("b", null, dot(l.status), l.name), h("span", null, l.note))]));
+// ======================================================================
+// Results
+// ======================================================================
+const TABS = [["findings", "Findings"], ["resolvers", "Resolvers"], ["network", "Network"], ["conn", "Connectivity"], ["system", "System"], ["routing", "Routing"], ["report", "AI report"]];
+function viewResults(m) {
+  const r = S.report;
+  if (!r) { fill(m, head("Results", "Run diagnostics to see detailed results."), h("div", { class: "glass empty" }, h("p", null, "No results yet."), h("div", { style: "margin-top:12px" }, h("button", { class: "btn primary", onclick: () => { location.hash = "#/dashboard"; runScan(); } }, "Run diagnostics")))); return; }
+  const [kind, title] = verdictOf(r.summary.verdict);
+  const entry = S.history.find((e) => e.id === S.reportId);
+  const privacySeg = h("div", { class: "seg", role: "group", "aria-label": "Report privacy" },
+    [["full", "Full"], ["technical", "Technical"], ["public", "Public"]].map(([k, n]) => h("button", { "aria-pressed": String(S.privacy === k), title: k === "full" ? "Includes public IPs and device names" : k === "technical" ? "Hides public IPs, IPv6 prefix, hostname, MACs" : "Also hides LAN addresses and internal names",
+      onclick: () => { S.privacy = k; setPref("sadns-privacy", k); if (k === "full") toast("Full includes your public IP and device details"); route(); } }, n)));
+  const q = "&privacy=" + S.privacy + (S.reportId ? "&id=" + S.reportId : "");
+  const exp = h("div", { class: "exportbar" }, privacySeg,
+    h("button", { class: "btn primary sm", onclick: async () => {
+      if (S.privacy === "full" && !confirm("Copy the full report? It includes your public IP address and device identifiers.")) return;
+      const txt = await (await api("/api/v1/report?format=md" + q)).text();
+      try { await navigator.clipboard.writeText(txt); toast("Copied. Paste it into your AI assistant."); } catch { S.tab = "report"; route(); toast("Clipboard unavailable. Select the text in the AI report tab."); }
+    } }, "Copy for AI"),
+    h("a", { class: "btn sm", href: "/api/v1/report?format=md&download=1" + q, download: "" }, "Download .md"),
+    h("a", { class: "btn sm", href: "/api/v1/report?format=json&download=1" + q, download: "" }, "Download .json"));
+  const sumLine = [when(r.started_at), dur(r.duration_sec), (r.options.quick ? "Quick" : "Full") + " scan", (r.data_usage || {}).mode === "low-data" ? "Low Data Mode" : "Standard data", entry ? "Trigger: " + entry.trigger : null].filter(Boolean).join(", ");
+  const top = h("section", { class: "glass strong card" },
+    h("div", { class: "view-head", style: "margin:0" },
+      h("div", null, stPill(kind, title), h("h2", { style: "margin-top:10px" }, r.summary.headline), h("p", { class: "small muted", style: "margin-top:4px" }, sumLine)),
+      h("div", { class: "exportbar" }, [["fail", "Failed", r.summary.fail], ["warn", "Warnings", r.summary.warn], ["info", "Info", r.summary.info], ["ok", "Passed", r.summary.pass]].map(([k, n, c]) =>
+        h("button", { class: "btn sm", onclick: () => { S.fFilter = k === "ok" ? "pass" : k; S.layer = ""; S.tab = "findings"; route(); } }, stPill(k, c + " " + n))))),
+    h("div", { style: "margin-top:16px" }, exp));
+  const tabs = h("div", { class: "tabs", role: "tablist" }, TABS.map(([k, n]) => h("button", { role: "tab", "aria-selected": String(S.tab === k), onclick: () => { S.tab = k; route(); } }, n)));
+  const body = h("div", { role: "tabpanel" });
+  fill(m, head("Results", S.reportId ? "Stored scan " + S.reportId : "Latest scan"), h("div", { class: "stack" }, top, (r.vantage || {}).in_container ? h("section", { class: "glass banner vantage" }, stPill("warn", "Container view"), h("p", { class: "small" }, r.vantage.note)) : null, h("div", null, tabs, body)));
+  ({ findings: renderFindings, resolvers: renderResolvers, network: renderNetwork, conn: renderConn, system: renderSystem, routing: renderRouting, report: renderReportTab })[S.tab](body, r);
 }
-function renderFindings() {
-  const want = (f) => (!fLayer || f.layer === fLayer) && (fFilter === "all" || (fFilter === "issues" ? f.severity !== "pass" : f.severity === fFilter));
-  const btn = (k, label) => h("button", { class: "btn small" + (fFilter === k ? " tinted" : ""), onclick: () => filterFindings(k) }, label);
-  const list = report.findings.filter(want);
-  const gaps = report.summary.coverage_gaps || [];
-  fill($("t-findings"),
-    gaps.length ? h("div", { class: "glass gaps" }, h("h4", null, "Not fully tested"), h("ul", null, gaps.map((g) => h("li", null, g)))) : null,
-    h("div", { class: "filters" }, btn("issues", "Issues & notes"), btn("fail", "Fail"), btn("warn", "Warn"), btn("info", "Info"), btn("pass", "Passed"), btn("all", "All")),
-    list.length ? list.map((f) => h("details", { class: "glass finding " + f.severity, open: f.severity === "fail" || f.severity === "warn" },
-      h("summary", null, h("span", { class: "sev " + f.severity }, sevLabel[f.severity]), h("span", { class: "title" }, f.title, f.confidence ? h("span", { class: "conf " + f.confidence, title: "confidence" }, " " + f.confidence) : null), h("span", { class: "fid" }, f.id), h("span", { class: "chev" }, "›")),
-      h("div", { class: "body" },
-        f.detail ? h("p", null, f.detail) : null,
-        (f.evidence || []).length ? h("ul", null, f.evidence.map((e) => h("li", null, e))) : null,
-        f.recommendation ? h("div", { class: "fix" }, h("b", null, "Fix  "), f.recommendation) : null)))
-      : h("div", { class: "glass card small" }, "Nothing in this category."));
+const head = (t, sub, ...right) => h("header", { class: "view-head" }, h("div", null, h("h1", null, t), sub ? h("p", { class: "muted" }, sub) : null), right.length ? h("div", { class: "exportbar" }, right) : null);
+
+function renderFindings(el, r) {
+  const want = (f) => (!S.layer || f.layer === S.layer) && (S.fFilter === "all" || (S.fFilter === "issues" ? f.severity !== "pass" : f.severity === S.fFilter));
+  const btn = (k, label) => h("button", { class: "btn sm", "aria-pressed": String(S.fFilter === k), style: S.fFilter === k ? "background:var(--accent-soft)" : "", onclick: () => { S.fFilter = k; route(); } }, label);
+  const list = r.findings.filter(want);
+  const gaps = r.summary.coverage_gaps || [];
+  const lname = ((r.summary.layers || []).find((l) => l.key === S.layer) || {}).name;
+  fill(el,
+    gaps.length ? h("section", { class: "glass card", style: "margin-bottom:16px" }, h("h3", null, "Not fully tested"), h("ul", { class: "small muted" }, gaps.map((g) => h("li", null, g)))) : null,
+    h("div", { class: "filters" }, btn("issues", "Issues and notes"), btn("fail", "Failed"), btn("warn", "Warnings"), btn("info", "Info"), btn("pass", "Passed"), btn("all", "All"),
+      S.layer ? h("button", { class: "btn sm", onclick: () => { S.layer = ""; route(); } }, "Layer: " + (lname || S.layer) + ", clear") : null),
+    list.length ? list.map((f) => h("details", { class: "glass finding", open: f.severity === "fail" || f.severity === "warn" },
+      h("summary", null, stPill(sevKind(f.severity)), h("span", { class: "t" }, f.title, h("small", null, [f.id, f.layer, f.confidence ? f.confidence + " confidence" : ""].filter(Boolean).join(", "))), h("span", { class: "faint", "aria-hidden": "true" }, "▾")),
+      h("div", { class: "body" }, f.detail ? h("p", null, f.detail) : null,
+        (f.evidence || []).length ? h("div", null, h("b", { class: "small" }, "Evidence"), h("ul", null, f.evidence.map((e) => h("li", null, e)))) : null,
+        f.recommendation ? h("div", { class: "fix" }, h("b", null, "Fix: "), f.recommendation) : null)))
+      : h("div", { class: "glass empty" }, "Nothing in this category."));
 }
 
 const statusOf = (r, id) => { const t = (r.tests || []).find((x) => x.id === id); return t ? t.status : null; };
 const RCOLS = [["udp_a", "UDP"], ["tcp", "TCP"], ["udp_aaaa", "AAAA"], ["edns", "EDNS"], ["tc_fallback", "TC→TCP"], ["edns_large", "Big UDP"], ["case_0x20", "0x20"], ["edns_version", "EDNSv1"], ["https_rr", "HTTPS RR"], ["burst", "Burst"], ["cache", "Cache"], ["dot", "DoT"], ["doh", "DoH"]];
-function renderResolvers() {
-  const head = ["Resolver", "Address", ...RCOLS.map((c) => c[1]), "Median", "Uncached", "DNSSEC", "NXDOMAIN", "Ad filter", "Rebind", "Egress"];
+function renderResolvers(el, rep) {
+  const hd = ["Resolver", "Address", ...RCOLS.map((c) => c[1]), "Median", "Uncached", "DNSSEC", "NXDOMAIN", "Ad filter", "Rebind", "Egress"];
   const rows = [];
-  for (const r of report.resolvers) {
-    const detail = h("tr", { class: "detail hidden" }, h("td", { colspan: head.length }, resolverDetail(r)));
+  for (const r of rep.resolvers) {
+    const detail = h("tr", { class: "hidden" }, h("td", { colspan: hd.length }, resolverDetail(r)));
     const eg = r.egress || {};
-    rows.push(h("tr", { class: "clickable", onclick: () => detail.classList.toggle("hidden") },
-      h("td", null, h("div", { style: "font-weight:600" }, r.label), h("div", { class: "small" }, r.role + (r.software ? " · " + r.software.split(" (")[0] : ""))),
-      h("td", { class: "mono" }, r.addr),
-      RCOLS.map(([id]) => h("td", null, statusOf(r, id) ? dot(statusOf(r, id)) : "")),
-      h("td", { class: "mono" }, fmtMs(r.latency && r.latency.median_ms)),
-      h("td", { class: "mono" }, fmtMs(r.uncached_ms)),
+    rows.push(h("tr", { class: "click", tabindex: "0", onclick: () => detail.classList.toggle("hidden"), onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); detail.classList.toggle("hidden"); } } },
+      h("td", null, h("b", null, r.label), h("div", { class: "small faint" }, r.role + (r.software ? ", " + r.software.split(" (")[0] : ""))),
+      h("td", { class: "mono" }, r.addr), RCOLS.map(([id]) => h("td", null, statusOf(r, id) ? dot(statusOf(r, id)) : "")),
+      h("td", { class: "mono" }, fmtMs(r.latency && r.latency.median_ms)), h("td", { class: "mono" }, fmtMs(r.uncached_ms)),
       h("td", null, tag(r.dnssec + (r.dnssec_confidence === "suspected" ? " (likely)" : ""), "validating", ["inconsistent"], ["not-validating"])),
-      h("td", null, tag(r.nxdomain, "correct", ["hijacked"])),
-      h("td", null, tag(r.filtering)),
-      h("td", null, tag(r.rebind_protection)),
+      h("td", null, tag(r.nxdomain, "correct", ["hijacked"])), h("td", null, tag(r.filtering)), h("td", null, tag(r.rebind_protection)),
       h("td", { class: "mono" }, eg.asn ? tag("AS" + eg.asn, eg.matches_provider === "yes" ? "AS" + eg.asn : "", eg.matches_provider === "no" ? ["AS" + eg.asn] : []) : "")));
     rows.push(detail);
   }
-  fill($("t-resolvers"),
-    h("p", { class: "small", style: "margin:0 4px 12px" }, "Click any row for every individual test with raw answers, Extended DNS Errors, identity and egress data."),
-    tbl(head, rows));
+  fill(el, h("p", { class: "small muted", style: "margin:0 4px 12px" }, "Select a row for every individual test with raw answers, Extended DNS Errors, identity and egress data."), tbl(hd, rows));
 }
 function resolverDetail(r) {
   const eg = r.egress || {}, l = r.latency || {};
   const kv = [["Role / provider", r.role + " / " + r.provider], ["Interface / source", (r.interface || "—") + " / " + (r.local_addr || "—")], ["On local subnet", r.on_link ? "yes" : "no"],
-    ["Latency", l.received ? `min ${fmtMs(l.min_ms)} · median ${fmtMs(l.median_ms)} · p90 ${fmtMs(l.p90_ms)} · max ${fmtMs(l.max_ms)} · jitter ${fmtMs(l.jitter_ms)} · ${l.received}/${l.sent} answered` : "—"],
-    ["Egress", eg.ip ? `${eg.ip} AS${eg.asn || "?"} ${eg.as_name || ""} (matches provider: ${eg.matches_provider || "n/a"})` : "—"],
-    ["ECS", eg.ecs || "—"], ["Behaviour", `cache=${r.caching} · cookies=${r.cookies} · 0x20=${r.case_0x20} · HTTPS RR=${r.https_rr} · rebind protection=${r.rebind_protection}`],
-    ["Uncached lookups", r.uncached_ms ? `median ${fmtMs(r.uncached_ms)} · p90 ${fmtMs(r.uncached_p90_ms)}` : "—"],
-    ["DNSSEC", `${r.dnssec}${r.dnssec_confidence ? " (" + r.dnssec_confidence + ")" : ""}`],
-    ["Canaries / DDR", `DoH canary=${r.canary_doh} · Private Relay=${r.canary_relay}` + ((r.ddr_targets || []).length ? " · DDR → " + r.ddr_targets.join(", ") : "")],
+    ["Latency", l.received ? `min ${fmtMs(l.min_ms)}, median ${fmtMs(l.median_ms)}, p90 ${fmtMs(l.p90_ms)}, max ${fmtMs(l.max_ms)}, jitter ${fmtMs(l.jitter_ms)}, ${l.received}/${l.sent} answered` : "—"],
+    ["Egress", eg.ip ? `${eg.ip} AS${eg.asn || "?"} ${eg.as_name || ""} (matches provider: ${eg.matches_provider || "n/a"})` : "—"], ["ECS", eg.ecs || "—"],
+    ["Behaviour", `cache=${r.caching}, cookies=${r.cookies}, 0x20=${r.case_0x20}, HTTPS RR=${r.https_rr}, rebind protection=${r.rebind_protection}`],
+    ["Uncached lookups", r.uncached_ms ? `median ${fmtMs(r.uncached_ms)}, p90 ${fmtMs(r.uncached_p90_ms)}` : "—"], ["DNSSEC", `${r.dnssec}${r.dnssec_confidence ? " (" + r.dnssec_confidence + ")" : ""}`],
+    ["Canaries / DDR", `DoH canary=${r.canary_doh}, Private Relay=${r.canary_relay}` + ((r.ddr_targets || []).length ? ", DDR: " + r.ddr_targets.join(", ") : "")],
     ["Identity", Object.entries(r.identity || {}).map(([k, v]) => k + "=" + v).join("; ") || "—"]];
-  return h("div", null,
-    h("div", { class: "kv", style: "margin-bottom:14px" }, kv.map(([k, v]) => [h("div", null, k), h("div", null, v)])),
+  return h("div", { style: "padding:8px 0" }, h("div", { class: "kv", style: "margin-bottom:14px" }, kv.map(([k, v]) => [h("div", null, k), h("div", null, v)])),
     tbl(["", "Test", "Detail", "Query", "RTT", "Rcode / flags", "Answers / EDE / error"], (r.tests || []).map((t) => h("tr", null,
-      h("td", null, dot(t.status)), h("td", { style: "white-space:nowrap" }, t.name), h("td", null, t.detail), h("td", { class: "mono" }, t.query || ""),
-      h("td", { class: "mono" }, fmtMs(t.rtt_ms)), h("td", { class: "mono" }, [t.rcode, t.flags].filter(Boolean).join(" ")),
-      h("td", { class: "mono", style: "white-space:normal;word-break:break-all;max-width:360px" }, [].concat(t.answers || [], t.ede || [], t.error ? [t.error] : []).join("\n").slice(0, 600)))), false));
+      h("td", null, dot(t.status)), h("td", { style: "white-space:nowrap" }, t.name), h("td", null, t.detail), h("td", { class: "mono" }, t.query || ""), h("td", { class: "mono" }, fmtMs(t.rtt_ms)),
+      h("td", { class: "mono" }, [t.rcode, t.flags].filter(Boolean).join(" ")), h("td", { class: "mono", style: "white-space:pre-wrap;word-break:break-all;max-width:360px" }, [].concat(t.answers || [], t.ede || [], t.error ? [t.error] : []).join("\n").slice(0, 600))))));
 }
-
-function dataCard() {
-  const d = report.data_usage || {};
-  const low = d.mode === "low-data";
-  return h("div", { class: "glass card", style: "margin-bottom:16px" },
-    h("h4", null, "HTTP data used by this scan", h("span", { class: "tag " + (low ? "meh" : "") }, low ? "Low Data Mode" : "Standard / High Data")),
-    h("div", { class: "big-num" }, fmtBytes(d.http_body_bytes), h("small", null, d.scan_budget_bytes ? "of " + fmtBytes(d.scan_budget_bytes) + " budget" : "no scan budget")),
-    h("div", { class: "kv", style: "margin-top:12px" },
-      h("div", null, "Requests"), h("div", null, `${d.http_requests} (${d.website_samples_per_family} sample(s) per resource and family)`),
-      h("div", null, "Stopped at sample limit"), h("div", null, `${d.responses_stopped_at_sample_limit} response(s) — limit ${fmtBytes(d.per_response_limit_bytes)}, ${fmtBytes(d.per_response_limit_user_urls_bytes)} for your URLs`),
-      h("div", null, "Limited by budget"), h("div", null, `${d.requests_limited_by_budget} request(s)`),
-      h("div", null, "Confidence"), h("div", null, d.confidence_affected ? "reduced — single website samples" : "not affected")),
-    d.note ? h("div", { class: "small", style: "margin-top:10px;color:var(--orange)" }, d.note) : null,
-    h("div", { class: "small", style: "margin-top:8px" }, d.scope || ""));
+const OUTCOME = { "complete-verified": ["complete, verified", "good"], complete: ["complete (length unknown)", ""], sampled: ["limited sample", "meh"], "budget-limited": ["budget reached, not tested", ""], failed: ["failed", "bad"] };
+function renderNetwork(el, rep) {
+  const n = rep.network_health || {}, d = rep.data_usage || {}, web = rep.web_timings || [];
+  const maxT = Math.max(1, ...web.map((w) => w.total_ms || 0));
+  const pingCard = (p) => { const ok = p.sent > 0 && p.received > 0, max = Math.max(p.max_ms || 1, 1);
+    return h("div", { class: "glass card" }, h("h4", null, dot(p.sent === 0 ? "skip" : !ok ? "fail" : p.loss_pct > 0 ? "warn" : "pass"), " ", p.label),
+      p.sent === 0 ? h("p", { class: "small muted" }, p.error || "not run") : [
+        h("div", { class: "big", style: "margin-top:8px" }, ok ? fmtMs(p.avg_ms).replace(" ms", "") : "—", h("small", null, ok ? "ms average" : "no replies")),
+        h("div", { class: "kv", style: "margin-top:10px" }, h("div", null, "Target"), h("div", { class: "mono" }, p.target), h("div", null, "Loss"), h("div", null, `${p.loss_pct}% (${p.received}/${p.sent})`),
+          h("div", null, "Min / max"), h("div", null, `${fmtMs(p.min_ms)} / ${fmtMs(p.max_ms)}`), h("div", null, "Jitter"), h("div", null, fmtMs(p.jitter_ms))),
+        (p.samples_ms || []).length ? h("div", { class: "spark", title: "per packet, in send order" }, p.samples_ms.map((v) => v < 0 ? h("i", { class: "lost", title: "lost" }) : h("i", { title: fmtMs(v), style: "height:" + Math.max(8, (v / max) * 100) + "%" }))) : null]); };
+  fill(el,
+    h("section", { class: "glass card" }, h("h3", null, "HTTP data used by this scan"),
+      h("div", { class: "big", style: "margin-top:8px" }, fmtBytes(d.http_body_bytes), h("small", null, d.scan_budget_bytes ? "of " + fmtBytes(d.scan_budget_bytes) + " budget" : "no scan budget (Standard data)")),
+      h("p", { class: "small muted", style: "margin-top:8px" }, `${d.http_requests} requests, ${d.responses_stopped_at_sample_limit} stopped at the sample limit, ${d.requests_limited_by_budget} limited by budget. ${d.scope || ""}`),
+      d.note ? h("p", { class: "small", style: "color:var(--warn);margin-top:6px" }, d.note) : null),
+    web.length ? [h("h3", { class: "sec" }, "Website loading"), h("p", { class: "small muted", style: "margin:0 4px 10px" }, "Single resources loaded on fresh connections. A baseline, not a full browser page load."),
+      tbl(["", "Resource", "Family", "Phases", "DNS", "Connect", "TLS", "First byte", "Transfer", "Total", "Runs", "Download"], web.map((w) => h("tr", null,
+        h("td", null, dot(w.ok ? "pass" : w.ok_runs ? "warn" : "fail")), h("td", { class: "mono", title: w.url }, w.host, w.user_specified ? h("div", { class: "small faint" }, "your URL") : null), h("td", null, w.family ? "IPv" + w.family : "—"),
+        h("td", null, w.ok_runs ? phaseBar(w, maxT) : h("span", { class: "small muted" }, w.error || "failed")),
+        ["dns_ms", "connect_ms", "tls_ms", "ttfb_ms", "download_ms", "total_ms"].map((k) => h("td", { class: "mono" }, fmtMs(w[k]))), h("td", { class: "mono" }, `${w.ok_runs}/${w.runs}`),
+        h("td", null, h("span", { class: "tag " + (OUTCOME[w.outcome] || ["", ""])[1] }, (OUTCOME[w.outcome] || [w.outcome || "—"])[0]), h("div", { class: "small faint" }, fmtBytes(w.bytes_all_runs || w.bytes)))))), phaseLegend()] : null,
+    h("h3", { class: "sec" }, "Packet loss and latency"),
+    (n.pings || []).length ? h("div", { class: "grid3" }, n.pings.map(pingCard)) : h("p", { class: "small muted" }, "No ping targets."),
+    h("div", { class: "grid2", style: "margin-top:16px" },
+      h("div", { class: "glass card" }, h("h4", null, "Path MTU"), (n.path_mtu || []).length ? n.path_mtu.map((x) => h("div", { style: "margin-top:10px" }, h("div", { class: "big" }, x.mtu || "?", h("small", null, "bytes, IPv" + x.family)), h("p", { class: "small muted" }, x.detail || x.error))) : h("p", { class: "small muted" }, "Not measured.")),
+      h("div", { class: "glass card" }, h("h4", null, "Time sync (NTP)"), (n.ntp || []).map((t) => h("p", { class: "small", style: "margin-top:8px" }, dot(t.ok ? "pass" : "fail"), " ", t.server, " ", h("span", { class: "faint" }, t.addr), " ", t.ok ? `offset ${t.offset_ms >= 0 ? "+" : ""}${t.offset_ms.toFixed(1)} ms, delay ${fmtMs(t.rtt_ms)}, stratum ${t.stratum}` : t.error)))),
+    h("h3", { class: "sec" }, "Captive portal and HTTP interception"),
+    tbl(["", "Check", "URL", "HTTP", "Time", "Result", "Proxy headers"], (n.http_checks || []).map((c) => h("tr", null, h("td", null, dot(c.ok ? "pass" : c.error ? "fail" : "warn")), h("td", null, c.name), h("td", { class: "mono" }, c.url), h("td", { class: "mono" }, c.status || "—"), h("td", { class: "mono" }, fmtMs(c.ms)), h("td", null, c.detail), h("td", { class: "mono" }, c.proxy_headers || "")))),
+    h("div", { class: "grid2", style: "margin-top:16px" },
+      h("div", { class: "glass card" }, h("h4", null, "NAT64 / DNS64"), h("p", { class: "small muted" }, (n.nat64 || {}).detail || "—")),
+      h("div", { class: "glass card" }, h("h4", null, "Local names"), (n.local_names || []).map((l) => h("p", { class: "small", style: "margin-top:6px" }, dot(l.ok ? "pass" : l.expected === "absent" ? "warn" : "info"), " ", l.name, " ", h("span", { class: "faint" }, l.purpose, ": ", l.error || (l.addrs || []).join(", ")))))));
 }
-function renderNetwork() {
-  const n = report.network_health || {};
-  const pingCard = (p) => {
-    const ok = p.sent > 0 && p.received > 0;
-    const max = Math.max(p.max_ms || 1, 1);
-    return h("div", { class: "glass card" },
-      h("h4", null, dot(p.sent === 0 ? "skip" : !ok ? "fail" : p.loss_pct > 0 ? "warn" : "pass"), p.label),
-      p.sent === 0 ? h("div", { class: "small" }, p.error || "not run") : [
-        h("div", { class: "big-num" }, ok ? (p.avg_ms < 10 ? p.avg_ms.toFixed(1) : Math.round(p.avg_ms)) : "—", h("small", null, ok ? "ms avg" : "no replies")),
-        h("div", { class: "kv", style: "margin-top:12px" },
-          h("div", null, "Target"), h("div", null, p.target),
-          h("div", null, "Loss"), h("div", null, `${p.loss_pct}% (${p.received}/${p.sent})`),
-          h("div", null, "Min / max"), h("div", null, `${fmtMs(p.min_ms)} / ${fmtMs(p.max_ms)}`),
-          h("div", null, "Jitter"), h("div", null, fmtMs(p.jitter_ms))),
-        (p.samples_ms || []).length ? h("div", { class: "spark", title: "per packet, in send order" }, p.samples_ms.map((v) => v < 0 ? h("i", { class: "lost", title: "lost" }) : h("i", { title: fmtMs(v), style: `height:${Math.max(6, (v / max) * 100)}%` })))
-          : ok ? h("div", { class: "small", style: "margin-top:10px" }, "packet order not available from this ping tool") : null]);
-  };
-  const web = report.web_timings || [];
-  const maxTot = Math.max(1, ...web.map((w) => w.total_ms || 0));
-  const bar = (w) => h("div", { class: "phasebar", title: `DNS ${w.dns_ms} · connect ${w.connect_ms} · TLS ${w.tls_ms} · first byte ${w.ttfb_ms} · download ${w.download_ms} ms` },
-    [["ph-dns", w.dns_ms], ["ph-con", w.connect_ms], ["ph-tls", w.tls_ms], ["ph-ttfb", w.ttfb_ms], ["ph-dl", w.download_ms]].map(([c, v]) => h("i", { class: c, style: `width:${(100 * (v || 0)) / maxTot}%` })));
-  fill($("t-network"),
-    web.length ? [h("h3", { class: "sec" }, "Website loading — where the time goes"),
-      h("div", { class: "legend" }, [["DNS", "#BF5AF2"], ["Connect", "var(--tint2)"], ["TLS", "var(--orange)"], ["First byte", "var(--green)"], ["Download", "var(--gray)"]].map(([n, c]) => h("span", { style: "--c:" + c }, n))),
-      h("p", { class: "small", style: "margin:0 4px 10px" }, ((report.data_usage || {}).website_samples_per_family > 1 ? "Single resources loaded several times on fresh connections (median run shown)" : "Single resources loaded once per address family (Low Data Mode)") + " — a baseline, not a full browser page load. Add your own URLs under “Websites to time” on the start screen."),
-      dataCard(),
-      tbl(["", "Resource", "Family", "Phases", "DNS", "Connect", "TLS", "First byte", "Transfer", "Measured", "Range", "Runs", "Download", "Details"], web.map((w) => h("tr", null,
-        h("td", null, dot(w.ok ? "pass" : w.ok_runs ? "warn" : w.failed_runs ? "fail" : "unknown")),
-        h("td", { class: "mono", title: w.url }, w.host, w.user_specified ? h("div", { class: "small" }, "your URL") : null), h("td", null, w.family ? "IPv" + w.family : "—"),
-        h("td", null, w.ok_runs ? bar(w) : h("span", { class: "small" }, w.error || (w.outcome === "budget-limited" ? "not tested — data budget reached" : "failed"))),
-        h("td", { class: "mono" }, fmtMs(w.dns_ms)), h("td", { class: "mono" }, fmtMs(w.connect_ms)), h("td", { class: "mono" }, fmtMs(w.tls_ms)),
-        h("td", { class: "mono" }, fmtMs(w.ttfb_ms)), h("td", { class: "mono" }, fmtMs(w.download_ms)), h("td", { class: "mono" }, fmtMs(w.total_ms)),
-        h("td", { class: "mono" }, w.ok_runs ? `${Math.round(w.min_elapsed_ms)}–${Math.round(w.max_elapsed_ms)} ms` : "—"),
-        h("td", { class: "mono" }, `${w.ok_runs}/${w.runs}`),
-        h("td", null, h("span", { class: "tag " + (OUTCOME[w.outcome] || ["", ""])[1], title: w.content_length > 0 ? "declared size " + fmtBytes(w.content_length) : "" }, (OUTCOME[w.outcome] || [w.outcome || "—"])[0]), h("div", { class: "small" }, fmtBytes(w.bytes_all_runs || w.bytes) + (w.runs > 1 ? " total" : ""))),
-        h("td", { class: "small" }, [[w.proto, w.tls_version].filter(Boolean).join(" "), w.redirects ? `${w.redirects} redirect(s), ${Math.round(w.redirect_ms)} ms` : "", w.rate_kbps ? `${(w.rate_kbps / 1000).toFixed(1)} Mbit/s` : "", w.ok || !w.ok_runs ? "" : w.error].filter(Boolean).join(" · ")))))] : null,
-    h("h3", { class: "sec" }, "Packet loss & latency"),
-    (n.pings || []).length ? h("div", { class: "grid3" }, n.pings.map(pingCard)) : h("p", { class: "small" }, "No ping targets."),
-    h("div", { class: "grid2" },
-      h("div", { class: "glass card" }, h("h4", null, "Path MTU"),
-        (n.path_mtu || []).length ? n.path_mtu.map((m) => h("div", { style: "margin-bottom:12px" },
-          h("div", { class: "big-num" }, m.mtu || "?", h("small", null, "bytes · IPv" + m.family)),
-          h("div", { class: "small", style: "margin-top:6px" }, m.detail || m.error))) : h("div", { class: "small" }, "Not measured.")),
-      h("div", { class: "glass card" }, h("h4", null, "Time sync (NTP)"),
-        (n.ntp || []).map((t) => h("div", { class: "hop" }, dot(t.ok ? "pass" : "fail"), "  ", t.server, " ", h("span", { class: "small" }, t.addr), "  ", t.ok ? `offset ${t.offset_ms >= 0 ? "+" : ""}${t.offset_ms.toFixed(1)} ms · delay ${fmtMs(t.rtt_ms)} · stratum ${t.stratum}` : t.error)))),
-    h("h3", { class: "sec" }, "Captive portal & HTTP interception"),
-    tbl(["", "Check", "URL", "HTTP", "Time", "Result", "Proxy headers"], (n.http_checks || []).map((c) => h("tr", null,
-      h("td", null, dot(c.ok ? "pass" : c.error ? "fail" : "warn")), h("td", null, c.name), h("td", { class: "mono" }, c.url), h("td", { class: "mono" }, c.status || "—"),
-      h("td", { class: "mono" }, fmtMs(c.ms)), h("td", null, c.detail), h("td", { class: "mono" }, c.proxy_headers || "")))),
-    h("div", { class: "grid2" },
-      h("div", { class: "glass card" }, h("h4", null, dot(n.nat64 && n.nat64.detected ? "info" : "pass"), "NAT64 / DNS64"), h("div", { class: "small" }, (n.nat64 || {}).detail || "—")),
-      h("div", { class: "glass card" }, h("h4", null, "Local names"),
-        (n.local_names || []).map((l) => h("div", { class: "hop" }, dot(l.ok ? "pass" : l.expected === "absent" ? "warn" : "info"), "  ", l.name, "  ", h("span", { class: "small" }, l.purpose), h("div", { class: "small", style: "margin-left:22px" }, l.error || (l.addrs || []).join(", ")))))));
-}
-
 function famCard(name, f, pub) {
-  const state = f.working ? ["good", "WORKING"] : (f.has_global_address || f.has_default_route) ? ["bad", "BROKEN"] : ["", "NOT PROVISIONED"];
-  return h("div", { class: "glass card" },
-    h("h4", null, name, h("span", { class: "tag " + state[0] }, state[1])),
-    h("div", { class: "big-num", style: "font-size:22px;margin-bottom:12px;word-break:break-all" }, pub.ip || "—"),
-    h("div", { class: "kv" },
-      h("div", null, "Address / global"), h("div", null, (f.has_address ? "yes" : "no") + " / " + (f.has_global_address ? "yes" : "no")),
-      h("div", null, "Default route"), h("div", null, f.has_default_route ? "yes" : "no"),
-      h("div", null, "Cloudflare PoP"), h("div", null, [pub.colo, pub.loc].filter(Boolean).join(" · ") || "—"),
-      h("div", null, "Clock skew"), h("div", null, pub.clock_known ? pub.clock_skew_sec.toFixed(1) + " s" : "—"),
+  const k = f.disabled_by_option ? "untested" : f.working ? "ok" : (f.has_global_address || f.has_default_route) ? "fail" : "untested";
+  return h("div", { class: "glass card" }, h("div", { class: "view-head", style: "margin:0 0 8px" }, h("h3", null, name), stPill(k, k === "ok" ? "Working" : k === "fail" ? "Broken" : f.disabled_by_option ? "Disabled" : "Not provisioned")),
+    h("div", { class: "big mono", style: "font-size:20px;word-break:break-all" }, pub.ip || "—"),
+    h("div", { class: "kv", style: "margin-top:10px" }, h("div", null, "Address / global"), h("div", null, (f.has_address ? "yes" : "no") + " / " + (f.has_global_address ? "yes" : "no")),
+      h("div", null, "Default route"), h("div", null, f.has_default_route ? "yes" : "no"), h("div", null, "Cloudflare PoP"), h("div", null, [pub.colo, pub.loc].filter(Boolean).join(", ") || "—"),
       pub.error ? [h("div", null, "Note"), h("div", null, pub.error)] : null),
-    h("div", { style: "margin-top:12px" }, (f.probes || []).map((p) => h("div", { class: "hop" }, dot(p.ok ? "pass" : "fail"), "  ", p.target, "  ", h("span", { class: "small" }, p.name), "  ", p.ok ? fmtMs(p.rtt_ms) : p.error_class))));
+    h("div", { style: "margin-top:10px" }, (f.probes || []).map((p) => h("p", { class: "small" }, dot(p.ok ? "pass" : "fail"), " ", p.target, " ", h("span", { class: "faint" }, p.name), " ", p.ok ? fmtMs(p.rtt_ms) : p.error_class))));
 }
-function renderConn() {
-  const c = report.connectivity, p = report.public_ip;
-  fill($("t-conn"),
-    h("div", { class: "grid2" }, famCard("IPv4", c.ipv4, p.ipv4), famCard("IPv6", c.ipv6, p.ipv6)),
-    (p.notes || []).length ? h("div", { class: "glass card small", style: "margin-bottom:20px" }, p.notes.map((n) => h("div", null, "• " + n))) : null,
-    h("h3", { class: "sec" }, "OS resolver path — what your apps experience"),
-    tbl(["", "Name", "Purpose", "IPv4", "IPv6", "Time", "Answer / error"], report.os_lookups.map((l) => h("tr", null,
-      h("td", null, dot(l.ok ? "pass" : "fail")), h("td", { class: "mono" }, l.name), h("td", null, l.purpose), h("td", null, l.has_v4 ? "yes" : "—"), h("td", null, l.has_v6 ? "yes" : "—"),
-      h("td", { class: "mono" }, fmtMs(l.ms)), h("td", { class: "mono", style: "white-space:normal;word-break:break-all" }, l.error || (l.addrs || []).join(", "))))),
+function renderConn(el, rep) {
+  const c = rep.connectivity, p = rep.public_ip;
+  fill(el, h("div", { class: "grid2" }, famCard("IPv4", c.ipv4, p.ipv4), famCard("IPv6", c.ipv6, p.ipv6)),
+    h("h3", { class: "sec" }, "OS resolver path, as your apps see it"),
+    tbl(["", "Name", "Purpose", "IPv4", "IPv6", "Time", "Answer / error"], (rep.os_lookups || []).map((l) => h("tr", null, h("td", null, dot(l.ok ? "pass" : "fail")), h("td", { class: "mono" }, l.name), h("td", null, l.purpose), h("td", null, l.has_v4 ? "yes" : "—"), h("td", null, l.has_v6 ? "yes" : "—"), h("td", { class: "mono" }, fmtMs(l.ms)), h("td", { class: "mono", style: "word-break:break-all" }, l.error || (l.addrs || []).join(", "))))),
     h("h3", { class: "sec" }, "Dual-stack reachability"),
-    tbl(["Host", "A", "AAAA", "IPv4 connect", "IPv6 connect"], (report.dual_stack || []).map((d) => h("tr", null,
-      h("td", { class: "mono" }, d.host), h("td", null, d.has_a ? "yes" : "no"), h("td", null, d.has_aaaa ? "yes" : "no"),
-      h("td", null, d.v4 ? [dot(d.v4.ok ? "pass" : "fail"), "  ", d.v4.ok ? fmtMs(d.v4.rtt_ms) : d.v4.error_class] : "—"),
-      h("td", null, d.v6 ? [dot(d.v6.ok ? "pass" : "fail"), "  ", d.v6.ok ? fmtMs(d.v6.rtt_ms) : d.v6.error_class] : "—")))));
+    tbl(["Host", "A", "AAAA", "IPv4 connect", "IPv6 connect"], (rep.dual_stack || []).map((d) => h("tr", null, h("td", { class: "mono" }, d.host), h("td", null, d.has_a ? "yes" : "no"), h("td", null, d.has_aaaa ? "yes" : "no"),
+      h("td", null, d.v4 ? [dot(d.v4.ok ? "pass" : "fail"), " ", d.v4.ok ? fmtMs(d.v4.rtt_ms) : d.v4.error_class] : "—"), h("td", null, d.v6 ? [dot(d.v6.ok ? "pass" : "fail"), " ", d.v6.ok ? fmtMs(d.v6.rtt_ms) : d.v6.error_class] : "—")))));
 }
-function renderSystem() {
-  const s = report.system || {};
-  const ifs = (s.interfaces || []).filter((i) => i.up || (i.addrs || []).length);
-  fill($("t-system"),
-    h("div", { class: "grid2" },
-      h("div", { class: "glass card" }, h("h4", null, "Host"), h("div", { class: "kv" },
-        h("div", null, "OS"), h("div", null, s.os_version || s.os), h("div", null, "Hostname"), h("div", null, s.hostname),
-        h("div", null, "Resolver manager"), h("div", null, s.resolver_manager || "—"),
-        h("div", null, "Search domains"), h("div", null, (s.search_domains || []).join(", ") || "—"),
-        h("div", null, "Resolver options"), h("div", null, Object.entries(s.resolver_options || {}).map(([k, v]) => v ? k + ":" + v : k).join(" ") || "—"))),
-      h("div", { class: "glass card" }, h("h4", null, "DNS failover"), h("div", { class: "kv" },
-        h("div", null, "Configured"), h("div", null, report.failover.configured_count), h("div", null, "Working"), h("div", null, report.failover.working_count),
-        h("div", null, "Distinct hosts"), h("div", null, report.failover.distinct_hosts), h("div", null, "Worst-case delay"), h("div", null, report.failover.worst_case_sec ? "~" + report.failover.worst_case_sec + " s" : "—"),
-        h("div", null, "Behaviour"), h("div", { style: "font-family:var(--sans)" }, report.failover.model || "—")))),
+function renderSystem(el, rep) {
+  const sy = rep.system || {}, fo = rep.failover || {};
+  const ifs = (sy.interfaces || []).filter((i) => i.up || (i.addrs || []).length);
+  fill(el, h("div", { class: "grid2" },
+      h("div", { class: "glass card" }, h("h3", null, "Host"), h("div", { class: "kv" }, h("div", null, "OS"), h("div", null, sy.os_version || sy.os), h("div", null, "Hostname"), h("div", null, sy.hostname),
+        h("div", null, "Resolver manager"), h("div", null, sy.resolver_manager || "—"), h("div", null, "Search domains"), h("div", null, (sy.search_domains || []).join(", ") || "—"),
+        h("div", null, "Vantage"), h("div", null, (rep.vantage || {}).mode || "host"))),
+      h("div", { class: "glass card" }, h("h3", null, "DNS failover"), h("div", { class: "kv" }, h("div", null, "Configured"), h("div", null, fo.configured_count), h("div", null, "Working"), h("div", null, fo.working_count),
+        h("div", null, "Worst-case delay"), h("div", null, fo.worst_case_sec ? "about " + fo.worst_case_sec + " s" : "—"), h("div", null, "Behaviour"), h("div", null, fo.model || "—")))),
     h("h3", { class: "sec" }, "Configured DNS servers"),
     tbl(["#", "Address", "Kind", "Interface", "Source"], [].concat(
-      (s.stub_resolvers || []).map((r, i) => h("tr", null, h("td", null, i + 1), h("td", { class: "mono" }, r.addr), h("td", null, "local stub"), h("td", null, r.interface || ""), h("td", null, r.source))),
-      (s.resolvers || []).map((r, i) => h("tr", null, h("td", null, i + 1), h("td", { class: "mono" }, r.addr), h("td", null, "upstream"), h("td", null, r.interface || ""), h("td", null, r.source))),
-      (s.split_resolvers || []).map((r, i) => h("tr", null, h("td", null, i + 1), h("td", { class: "mono" }, r.addr), h("td", null, "split DNS: " + r.domain), h("td", null, r.interface || ""), h("td", null, r.source))))),
+      (sy.stub_resolvers || []).map((r, i) => h("tr", null, h("td", null, i + 1), h("td", { class: "mono" }, r.addr), h("td", null, "local stub"), h("td", null, r.interface || ""), h("td", null, r.source))),
+      (sy.resolvers || []).map((r, i) => h("tr", null, h("td", null, i + 1), h("td", { class: "mono" }, r.addr), h("td", null, "upstream"), h("td", null, r.interface || ""), h("td", null, r.source))),
+      (sy.split_resolvers || []).map((r, i) => h("tr", null, h("td", null, i + 1), h("td", { class: "mono" }, r.addr), h("td", null, "split DNS: " + r.domain), h("td", null, r.interface || ""), h("td", null, r.source))))),
     h("h3", { class: "sec" }, "Default gateways"),
-    tbl(["Family", "Gateway", "Interface", "Metric", "Source"], (s.default_gateways || []).map((g) => h("tr", null, h("td", null, "IPv" + g.family), h("td", { class: "mono" }, g.gateway), h("td", null, g.interface || ""), h("td", null, g.metric || ""), h("td", null, g.source)))),
+    tbl(["Family", "Gateway", "Interface", "Metric", "Source"], (sy.default_gateways || []).map((g) => h("tr", null, h("td", null, "IPv" + g.family), h("td", { class: "mono" }, g.gateway), h("td", null, g.interface || ""), h("td", null, g.metric || ""), h("td", null, g.source)))),
     h("h3", { class: "sec" }, "Interfaces"),
-    tbl(["Name", "State", "MTU", "Addresses", "Notes"], ifs.map((i) => h("tr", null, h("td", null, i.name), h("td", null, tag(i.up ? "up" : "down", "up")), h("td", { class: "mono" }, i.mtu),
-      h("td", { class: "mono" }, (i.addrs || []).map((a) => h("div", null, a.cidr + "  ", h("span", { class: "small" }, a.scope)))),
-      h("td", null, [i.loopback ? "loopback" : "", i.likely_vpn ? "VPN/tunnel" : ""].filter(Boolean).join(", "))))),
-    (s.notes || []).length ? [h("h3", { class: "sec" }, "Notes"), h("div", { class: "glass card" }, s.notes.map((n) => h("div", { class: "small", style: "color:var(--label2)" }, "• " + n)))] : null,
+    tbl(["Name", "State", "MTU", "Addresses", "Notes"], ifs.map((i) => h("tr", null, h("td", null, i.name), h("td", null, tag(i.up ? "up" : "down", "up")), h("td", { class: "mono" }, i.mtu), h("td", { class: "mono" }, (i.addrs || []).map((a) => h("div", null, a.cidr, " ", h("span", { class: "faint" }, a.scope)))), h("td", null, [i.loopback ? "loopback" : "", i.likely_vpn ? "VPN/tunnel" : ""].filter(Boolean).join(", "))))),
     h("h3", { class: "sec" }, "Raw command output"),
-    (s.raw || []).map((r) => h("details", { class: "glass finding info" }, h("summary", null, h("span", { class: "title mono" }, r.command), r.error ? h("span", { class: "fid" }, r.error) : null, h("span", { class: "chev" }, "›")), h("div", { class: "body" }, h("pre", { class: "raw" }, r.output || "(no output)")))));
+    (sy.raw || []).map((r) => h("details", { class: "glass finding" }, h("summary", null, h("span", { class: "mono" }, "$"), h("span", { class: "t mono" }, r.command), h("span", { class: "faint" }, r.error || "")), h("pre", { class: "raw" }, r.output || "(no output)"))));
 }
-function renderRouting() {
-  const rt = report.routing || {}, ic = report.interception || {};
-  fill($("t-routing"),
-    h("h3", { class: "sec" }, "Interception probes"),
+function renderRouting(el, rep) {
+  const rt = rep.routing || {}, ic = rep.interception || {};
+  fill(el, h("h3", { class: "sec" }, "Interception probes"),
     tbl(["", "Probe", "Result"], (ic.bogon_probes || []).map((b) => h("tr", null, h("td", null, dot(b.status)), h("td", null, b.name), h("td", null, b.detail)))),
     h("h3", { class: "sec" }, "Who actually resolves your queries"),
-    tbl(["Resolver", "Address", "Egress IP", "ASN", "Network", "Matches provider", "ECS"], report.resolvers.filter((r) => r.egress && r.egress.ip).map((r) => h("tr", null,
-      h("td", null, r.label), h("td", { class: "mono" }, r.addr), h("td", { class: "mono" }, r.egress.ip), h("td", { class: "mono" }, r.egress.asn ? "AS" + r.egress.asn : ""),
-      h("td", null, r.egress.as_name || ""), h("td", null, tag(r.egress.matches_provider || "n/a", "yes", ["no"])), h("td", { class: "mono" }, r.egress.ecs || "")))),
+    tbl(["Resolver", "Address", "Egress IP", "ASN", "Network", "Matches provider", "ECS"], rep.resolvers.filter((r) => r.egress && r.egress.ip).map((r) => h("tr", null, h("td", null, r.label), h("td", { class: "mono" }, r.addr), h("td", { class: "mono" }, r.egress.ip), h("td", { class: "mono" }, r.egress.asn ? "AS" + r.egress.asn : ""), h("td", null, r.egress.as_name || ""), h("td", null, tag(r.egress.matches_provider || "n/a", "yes", ["no"])), h("td", { class: "mono" }, r.egress.ecs || "")))),
     h("h3", { class: "sec" }, "Route selection"),
-    tbl(["Destination", "Purpose", "Interface", "Source", "On-link", "VPN", "Error"], (rt.route_choices || []).map((c) => h("tr", null,
-      h("td", { class: "mono" }, c.dest), h("td", null, c.label), h("td", null, c.interface || ""), h("td", { class: "mono" }, c.local_addr || ""), h("td", null, c.on_link ? "yes" : "no"), h("td", null, c.via_vpn ? "yes" : "no"), h("td", null, c.error || "")))),
-    (rt.traceroutes || []).map((t) => [h("h3", { class: "sec" }, t.label),
-      t.error && !(t.hops || []).length ? h("div", { class: "glass card small" }, t.error) :
+    tbl(["Destination", "Purpose", "Interface", "Source", "On-link", "VPN", "Error"], (rt.route_choices || []).map((c) => h("tr", null, h("td", { class: "mono" }, c.dest), h("td", null, c.label), h("td", null, c.interface || ""), h("td", { class: "mono" }, c.local_addr || ""), h("td", null, c.on_link ? "yes" : "no"), h("td", null, c.via_vpn ? "yes" : "no"), h("td", null, c.error || "")))),
+    (rt.traceroutes || []).map((t) => [h("h3", { class: "sec" }, t.label), t.error && !(t.hops || []).length ? h("div", { class: "glass card small muted" }, t.error) :
       tbl(["Hop", "Address", "Scope", "RTT"], (t.hops || []).map((x) => h("tr", null, h("td", { class: "mono" }, x.ttl), h("td", { class: "mono" }, x.timeout ? "*" : x.addr), h("td", null, x.scope || ""), h("td", { class: "mono" }, x.timeout ? "" : fmtMs(x.rtt_ms)))))]));
 }
-async function renderReportTab() {
-  const r = await api("/api/report.md?x=1" + rq());
-  const txt = await r.text();
-  fill($("t-report"),
-    h("p", { class: "small", style: "margin:0 4px 12px" }, "Exactly what “Copy report for AI” puts on your clipboard — it opens with instructions for the AI."),
-    h("div", { class: "glass", style: "padding:6px;border-radius:var(--r-lg)" }, h("pre", { class: "raw" }, txt)));
+async function renderReportTab(el) {
+  fill(el, h("p", { class: "muted" }, "Loading report…"));
+  const txt = await (await api("/api/v1/report?format=md&privacy=" + S.privacy + (S.reportId ? "&id=" + S.reportId : ""))).text();
+  fill(el, h("p", { class: "small muted", style: "margin:0 4px 12px" }, "Exactly what Copy for AI puts on your clipboard, at the privacy level selected above."), h("div", { class: "glass" }, h("pre", { class: "raw" }, txt)));
 }
-init();
+
+// ======================================================================
+// History & compare
+// ======================================================================
+function viewHistory(m) {
+  const file = h("input", { type: "file", accept: ".json,application/json", class: "sr", id: "imp", onchange: async (e) => {
+    const f = e.target.files[0]; if (!f) return;
+    try { await jsend("POST", "/api/v1/history/import", JSON.parse(await f.text())); toast("Report imported"); await loadHistory(); route(); } catch (err) { toast("Import failed: " + err.message); }
+    e.target.value = "";
+  } });
+  const conn = (e) => { const m4 = e.metrics.ipv4, m6 = e.metrics.ipv6; return `IPv4 ${m4}, IPv6 ${m6}`; };
+  const list = S.history;
+  const rows = list.map((e) => {
+    const [k, label] = verdictOf(e.status === "failed" ? "" : e.verdict);
+    const sel = S.compare.includes(e.id);
+    return h("div", { class: "hrow" },
+      h("input", { type: "checkbox", "aria-label": "Select for comparison", checked: sel, onchange: (ev) => { S.compare = ev.target.checked ? S.compare.concat(e.id).slice(-2) : S.compare.filter((x) => x !== e.id); route(); } }),
+      h("div", { class: "when" }, h("b", null, when(e.started_at)), h("small", null, [dur(e.duration_sec), e.mode === "quick" ? "Quick" : "Full", e.data_mode === "low-data" ? "Low Data" : null, "Trigger: " + e.trigger, e.source === "imported" ? "from " + (e.host || "another device") : null].filter(Boolean).join(", "))),
+      h("div", { class: "m" }, e.status === "failed" ? stPill("fail", "Scan failed") : stPill(k, label), h("small", null, `${e.fail} failed, ${e.warn} warnings, ${e.pass} passed`)),
+      h("div", { class: "m hide-md" }, h("b", null, e.metrics.dns_measured ? "DNS " + fmtMs(e.metrics.dns_median_ms) : "DNS not measured"), h("small", null, conn(e))),
+      h("div", { class: "btns" },
+        h("button", { class: "btn sm", onclick: () => location.hash = "#/results/" + e.id }, "View"),
+        h("a", { class: "btn sm", href: "/api/v1/report?format=md&download=1&privacy=" + S.privacy + "&id=" + e.id, download: "", title: "Markdown report at the " + S.privacy + " privacy level" }, "Download for AI"),
+        h("button", { class: "btn sm pin", "aria-pressed": String(e.pinned), title: e.pinned ? "Pinned scans are never removed automatically" : "Keep this scan regardless of retention", onclick: async () => { try { await jsend("POST", "/api/v1/history/" + e.id + "/pin", { pinned: !e.pinned }); await loadHistory(); route(); } catch (err) { toast(err.message); } } }, e.pinned ? "Pinned" : "Pin"),
+        h("button", { class: "btn sm danger", onclick: async () => { if (!confirm("Delete this scan from history?")) return; await jsend("DELETE", "/api/v1/history/" + e.id).catch((err) => toast(err.message)); S.compare = S.compare.filter((x) => x !== e.id); await loadHistory(); route(); } }, "Delete")));
+  });
+  fill(m, head("History", `${list.length} stored scans. The newest ${S.retain} unpinned scans are kept; pinned scans are kept until you delete them.`,
+      h("button", { class: "btn sm", disabled: S.compare.length !== 2, onclick: doCompare }, "Compare selected (" + S.compare.length + "/2)"),
+      h("label", { class: "btn sm", for: "imp" }, "Import report"), file,
+      h("button", { class: "btn sm danger", disabled: !list.length, onclick: async () => { if (!confirm("Delete all unpinned scans?")) return; const r = await jsend("POST", "/api/v1/history/clear", { include_pinned: false }).catch((e) => toast(e.message)); if (r) toast(r.removed + " scans deleted"); S.compare = []; await loadHistory(); route(); } }, "Clear unpinned")),
+    S.cmp ? compareView(S.cmp) : null,
+    list.length ? h("section", { class: "glass", style: "margin-top:16px" }, rows) : h("div", { class: "glass empty" }, "No scans stored yet. Scans you run, and Auto Run scans, appear here and survive restarts."));
+}
+async function doCompare() {
+  try { S.cmp = await jget("/api/v1/history/compare?a=" + S.compare[0] + "&b=" + S.compare[1]); route(); } catch (e) { toast(e.message); }
+}
+function compareView(c) {
+  const fmtD = (x) => x.missing ? "not measured in both" : (x.delta > 0 ? "+" : "") + (!x.unit || Math.abs(x.delta) >= 10 ? Math.round(x.delta) : x.delta.toFixed(1)) + (x.unit ? " " + x.unit : "");
+  const cls = (x) => x.missing || x.delta === 0 ? "" : (x.delta < 0) === (x.better === "lower") ? "delta better" : "delta worse";
+  const val = (v, x) => x.missing && !v ? "—" : (!x.unit || v >= 10 ? Math.round(v || 0) : (v || 0).toFixed(1)) + (x.unit ? " " + x.unit : "");
+  return h("section", { class: "glass strong card", style: "margin-bottom:16px" },
+    h("div", { class: "view-head", style: "margin:0 0 12px" }, h("div", null, h("h2", null, "Comparison"), h("p", { class: "small muted" }, when(c.a.started_at) + " compared with " + when(c.b.started_at))), h("button", { class: "btn sm", onclick: () => { S.cmp = null; route(); } }, "Close")),
+    (c.notes || []).map((n) => h("p", { class: "small", style: "color:var(--warn);margin-bottom:6px" }, n)),
+    tbl(["Measure", "Older", "Newer", "Change"], c.metrics.map((x) => h("tr", null, h("td", null, x.name), h("td", { class: "mono" }, val(x.a, x)), h("td", { class: "mono" }, val(x.b, x)), h("td", { class: cls(x) + " mono" }, fmtD(x))))),
+    h("h3", { class: "sec" }, "Path"),
+    h("div", { class: "exportbar" }, c.layers.map((l) => h("span", { class: "small" }, l.key + ": ", stPill(layerKind(l.a)), " to ", stPill(layerKind(l.b))))),
+    h("h3", { class: "sec" }, "Findings that changed"),
+    (c.findings || []).length ? tbl(["Change", "Finding", "Severity"], c.findings.map((f) => h("tr", null, h("td", null, f.change), h("td", null, f.title, h("div", { class: "small faint" }, f.id)), h("td", null, [f.from, f.to].filter(Boolean).join(" to "))))) : h("p", { class: "small muted" }, "No findings changed."));
+}
+
+// ======================================================================
+// Trends
+// ======================================================================
+function viewTrends(m) {
+  const P = trendPoints().slice(-200);
+  if (P.length < 2) { fill(m, head("Trends", "How your network behaves over time."), h("div", { class: "glass empty" }, "Trends appear after two or more stored scans. Turn on Auto Run in Settings to collect them automatically.")); return; }
+  const ser = (name, color, f) => ({ name, color, pts: P.map((p) => [p.t, f(p.m, p.e)]) });
+  const card = (title, unit, series, note) => h("section", { class: "glass card" }, h("h3", null, title), note ? h("p", { class: "small muted" }, note) : null, h("div", { style: "margin-top:10px" }, lineChart(series, unit)));
+  const fam = (k) => h("div", { class: "spark", title: k, "aria-label": k + " health per scan", role: "img" }, P.map((p) => { const v = p.m[k]; return h("i", { class: v === "broken" ? "lost" : "", title: when(p.e.started_at) + ": " + v, style: "height:" + (v === "working" ? 100 : v === "broken" ? 100 : 25) + "%;" + (v === "working" ? "background:var(--ok)" : v === "broken" ? "" : "background:var(--unk)") }); }));
+  fill(m, head("Trends", `${P.length} scans from this installation, oldest to newest, in ${TZ}. Imported reports are left out because they were measured elsewhere.`),
+    h("div", { class: "grid2" },
+      card("DNS latency", "ms", [ser("Median", "var(--teal)", (x) => x.dns_measured ? (x.dns_median_ms || 0) : null), ser("Jitter", "var(--ice)", (x) => x.dns_measured ? (x.dns_jitter_ms || 0) : null)], "Primary system resolver, cached queries."),
+      card("DNS query loss", "%", [ser("Loss", "var(--fail)", (x) => x.dns_measured ? (x.dns_loss_pct || 0) : null)]),
+      card("Gateway", "ms", [ser("Round trip", "var(--teal)", (x) => x.gateway_measured ? (x.gateway_rtt_ms || 0) : null), ser("Jitter", "var(--ice)", (x) => x.gateway_measured ? (x.gateway_jitter_ms || 0) : null)], "Your router, or the Docker bridge in a container."),
+      card("Internet", "ms", [ser("Round trip", "var(--teal)", (x) => x.internet_measured ? (x.internet_rtt_ms || 0) : null), ser("Jitter", "var(--ice)", (x) => x.internet_measured ? (x.internet_jitter_ms || 0) : null)]),
+      card("Packet loss", "%", [ser("Gateway", "var(--warn)", (x) => x.gateway_measured ? (x.gateway_loss_pct || 0) : null), ser("Internet", "var(--fail)", (x) => x.internet_measured ? (x.internet_loss_pct || 0) : null)]),
+      card("Website load", "ms", [ser("Mean total", "var(--accent)", (x) => x.web_ok ? (x.web_avg_ms || 0) : null)], "Mean of successful baseline loads."),
+      card("Warnings and failures", "", [ser("Warnings", "var(--warn)", (x, e) => e.warn), ser("Failures", "var(--fail)", (x, e) => e.fail)]),
+      h("section", { class: "glass card" }, h("h3", null, "IPv4 and IPv6 health"), h("p", { class: "small muted" }, "Green: working. Red: broken. Grey: disabled or not provisioned."),
+        h("p", { class: "small", style: "margin-top:12px" }, "IPv4"), fam("ipv4"), h("p", { class: "small", style: "margin-top:12px" }, "IPv6"), fam("ipv6"))));
+}
+
+// ======================================================================
+// Settings
+// ======================================================================
+// Reusable settings row: label and description on the left, control in a
+// fixed right-hand column. The whole row toggles its switch.
+function swRow(id, label, desc, checked, onchange, disabled) {
+  const sw = h("input", { type: "checkbox", class: "sw", id, role: "switch", checked: !!checked, disabled: !!disabled, "aria-describedby": desc ? id + "-d" : null, onchange: (e) => onchange(e.target.checked) });
+  return h("label", { class: "row", for: id }, h("span", { class: "lab" }, h("b", null, label), desc ? h("small", { id: id + "-d" }, desc) : null), h("span", { class: "ctl" }, sw));
+}
+function ctlRow(label, desc, ...ctl) { return h("div", { class: "row static" }, h("span", { class: "lab" }, h("b", null, label), desc ? h("small", null, desc) : null), h("span", { class: "ctl" }, ctl)); }
+function seg(name, opts, value, onpick) {
+  return h("div", { class: "seg", role: "group", "aria-label": name }, opts.map(([k, n]) => h("button", { type: "button", "aria-pressed": String(value === k), onclick: () => onpick(k) }, n)));
+}
+async function savePrefs(patch) {
+  const next = { ...S.prefs, ...patch };
+  if (!next.ipv4 && !next.ipv6) { toast("Keep at least one of IPv4 and IPv6 on"); route(); return; }
+  try { S.prefs = await jsend("PUT", "/api/v1/preferences", next); toast("Saved"); } catch (e) { toast(e.message); }
+  route();
+}
+function viewSettings(m) {
+  const p = S.prefs || {}, sc = S.sched || {}, st = sc.state || {};
+  const mult = { minutes: 1, hours: 60, days: 1440 }[sc.unit || "minutes"] || 1;
+  const draft = { ...sc, n: Math.max(1, Math.round((sc.interval_minutes || 60) / mult)) };
+  const statusPill = sc.status === "scheduled" ? stPill("auto", "On") : sc.status === "paused" ? stPill("warn", "Paused") : sc.status === "running" ? stPill("info", "Scan running") : stPill("untested", "Off");
+
+  const scan = h("section", { class: "glass group", "aria-labelledby": "g1" }, h("h3", { id: "g1" }, "Scan"),
+    h("p", { class: "gnote" }, "Used for scans you start, and for Auto Run when it includes your selections."),
+    swRow("p-v4", "IPv4", "Test connectivity, DNS and websites over IPv4.", p.ipv4, (v) => savePrefs({ ipv4: v })),
+    swRow("p-v6", "IPv6", "Test over IPv6. Leave on even if you are not sure you have IPv6; SAdns reports it as not provisioned.", p.ipv6, (v) => savePrefs({ ipv6: v })),
+    swRow("p-enc", "Encrypted DNS (DoT / DoH)", "Check DNS-over-TLS and DNS-over-HTTPS on each resolver that offers it.", p.encrypted, (v) => savePrefs({ encrypted: v })),
+    swRow("p-tr", "Traceroute", "Trace the route to public resolvers. Full scans only; adds about 20 seconds.", p.traceroute, (v) => savePrefs({ traceroute: v })),
+    swRow("p-low", "Low Data Mode", "One website sample per address family, 512 KiB per response and a 10 MiB budget per scan. Every DNS, ping and routing test still runs. Off means Standard data.", p.low_data, (v) => savePrefs({ low_data: v })),
+    ctlRow("Default depth", "Quick checks the primary address of each provider. Full checks every address and runs traceroute.", seg("Default depth", [["quick", "Quick"], ["full", "Full"]], S.depth, (k) => { S.depth = k; setPref("sadns-depth", k); route(); })),
+    advancedBlock(p));
+
+  const intervalIn = h("input", { class: "f num", type: "number", min: "1", value: String(draft.n), "aria-label": "Interval", oninput: (e) => { draft.n = +e.target.value; } });
+  const unitSel = h("select", { class: "f", "aria-label": "Interval unit", onchange: (e) => { draft.unit = e.target.value; } }, ["minutes", "hours", "days"].map((u) => h("option", { value: u, selected: (sc.unit || "minutes") === u }, u)));
+  const retainIn = h("input", { class: "f num", type: "number", min: "1", max: String(S.info.limits.max_retain), value: String(sc.history_retain || 100), "aria-label": "Scans to keep", oninput: (e) => { draft.history_retain = +e.target.value; } });
+  const auto = h("section", { class: "glass group", "aria-labelledby": "g2" },
+    h("h3", { id: "g2" }, "Auto Run"),
+    h("p", { class: "gnote" }, statusPill, " ", S.info.mode === "desktop" ? "Runs while SAdns is open, even with no browser tab. Use sadns serve or Docker to run around the clock." : "Runs on the server, whether or not a browser is open."),
+    swRow("a-en", "Run diagnostics automatically", null, draft.enabled, (v) => { draft.enabled = v; }),
+    ctlRow("Every", `At least ${sc.min_interval_minutes || 5} minutes.`, intervalIn, unitSel),
+    ctlRow("Depth", null, seg("Auto Run depth", [["quick", "Quick"], ["full", "Full"]], draft.mode, (k) => { draft.mode = k; [...document.querySelectorAll("#ad button")].forEach((b, i) => b.setAttribute("aria-pressed", String((i === 0) === (k === "quick")))); })),
+    swRow("a-low", "Low Data Mode for Auto Run", "Recommended on metered or slow connections.", draft.low_data, (v) => { draft.low_data = v; }),
+    swRow("a-urls", "Include my websites", "Time the websites listed under Advanced.", draft.include_custom_urls, (v) => { draft.include_custom_urls = v; }),
+    swRow("a-res", "Include my resolver selection", "Use the providers and extra resolvers chosen under Advanced.", draft.include_resolver_selection, (v) => { draft.include_resolver_selection = v; }),
+    ctlRow("Scans to keep", "Oldest unpinned scans are deleted first. Pinned scans are kept.", retainIn),
+    h("div", { class: "row static" }, h("span", { class: "lab" }, h("b", null, "Status"),
+      h("small", null, `Last run: ${zeroTime(st.last_run_at) ? "never" : when(st.last_run_at) + " (" + (st.last_trigger || "") + ", " + (st.last_result || "") + ", " + dur(st.last_duration_sec) + ")"}`),
+      h("small", null, `Next run: ${sc.status === "scheduled" ? when(st.next_run_at) + " (" + rel(st.next_run_at) + ")" : "none"}`),
+      st.skipped_total ? h("small", null, `Skipped ${st.skipped_total} time(s); last because ${st.last_skip_reason}.`) : null,
+      st.last_error ? h("small", { style: "color:var(--fail)" }, "Last error: " + st.last_error) : null,
+      h("small", { class: "faint" }, `Times shown in ${TZ}. Server time zone: ${sc.server_timezone || "unknown"}.`))),
+    h("div", { class: "actions" },
+      h("button", { class: "btn primary", onclick: async () => {
+        const body = { enabled: !!draft.enabled, paused: !!sc.paused, interval_minutes: Math.round(draft.n * ({ minutes: 1, hours: 60, days: 1440 }[draft.unit || "minutes"])), unit: draft.unit || "minutes", mode: draft.mode || "quick",
+          low_data: !!draft.low_data, include_custom_urls: !!draft.include_custom_urls, include_resolver_selection: !!draft.include_resolver_selection, history_retain: draft.history_retain || sc.history_retain || 100 };
+        try { S.sched = await jsend("PUT", "/api/v1/schedule", body); toast("Auto Run saved"); await loadHistory(); route(); } catch (e) { toast(e.message); }
+      } }, "Save Auto Run"),
+      h("span", { class: "grow" }),
+      sc.enabled ? (sc.paused ? h("button", { class: "btn", onclick: () => schedAct("resume") }, "Resume") : h("button", { class: "btn", onclick: () => schedAct("pause") }, "Pause")) : null,
+      h("button", { class: "btn", disabled: !!S.running, onclick: () => schedAct("run-now") }, "Run now"),
+      S.running ? h("button", { class: "btn danger", onclick: cancelScan }, "Cancel scan") : null));
+  auto.querySelectorAll(".seg")[0].id = "ad";
+
+  const theme = pref("sadns-theme", "auto");
+  const look = h("section", { class: "glass group", "aria-labelledby": "g3" }, h("h3", { id: "g3" }, "Appearance"),
+    ctlRow("Theme", "Auto follows your system.", seg("Theme", [["auto", "Auto"], ["light", "Light"], ["dark", "Dark"]], theme, (k) => { setPref("sadns-theme", k); applyAppearance(); route(); })),
+    swRow("x-tr", "Reduce transparency", "Solid surfaces instead of glass. Also follows your system setting.", pref("sadns-transparency", "normal") === "reduced", (v) => { setPref("sadns-transparency", v ? "reduced" : "normal"); applyAppearance(); }));
+
+  const about = h("section", { class: "glass group", "aria-labelledby": "g4" }, h("h3", { id: "g4" }, "About"),
+    ctlRow("Version", S.info.tool.version + " (" + S.info.os + "/" + S.info.arch + ")", h("a", { href: S.info.tool.repo, target: "_blank", rel: "noopener" }, "Project page")),
+    ctlRow("Access", S.info.mode === "desktop" ? "This computer only (loopback with a one-time token)." : S.info.auth === "password" ? "Server mode, password protected." : "Server mode, loopback without a password."),
+    S.info.data_dir ? ctlRow("History folder", S.info.data_dir) : null,
+    ctlRow("Measured from", (S.info.vantage || {}).in_container ? S.info.vantage.mode + ": " + S.info.vantage.note : "Directly on this host."));
+
+  fill(m, head("Settings", null), h("div", { class: "stack" }, scan, auto, look, about));
+}
+async function schedAct(a) {
+  try { const r = await jsend("POST", "/api/v1/schedule/" + a); if (a === "run-now") toast("Auto Run scan started"); else { S.sched = r; route(); } } catch (e) { toast(e.message); }
+}
+function advancedBlock(p) {
+  const provs = new Set(p.no_providers ? [] : p.providers && p.providers.length ? p.providers : S.info.providers.map((x) => x.key));
+  const chips = h("div", { class: "chips" }, S.info.providers.map((x) => h("label", { class: "chip", title: (x.v4 || []).concat(x.v6 || []).join(", ") },
+    h("input", { type: "checkbox", value: x.key, checked: provs.has(x.key), onchange: () => {
+      const on = [...chips.querySelectorAll("input:checked")].map((c) => c.value);
+      savePrefs({ providers: on.length === S.info.providers.length ? [] : on, no_providers: on.length === 0 });
+    } }), x.name)));
+  const urls = h("textarea", { class: "f", id: "o-urls", placeholder: "https://example.com/large-image.jpg", onchange: (e) => savePrefs({ urls: e.target.value.split(/[\s,]+/).filter(Boolean) }) }, (p.urls || []).join("\n"));
+  const extra = h("textarea", { class: "f", id: "o-extra", placeholder: "192.168.1.53\n9.9.9.9:53", onchange: (e) => savePrefs({ extra_resolvers: e.target.value.split(/[\s,]+/).filter(Boolean) }) }, (p.extra_resolvers || []).join("\n"));
+  const adv = advanced();
+  return h("details", { class: "adv" }, h("summary", null, "Advanced"),
+    h("div", { class: "block" }, h("label", null, "Public resolvers to compare"), chips, h("small", null, "Turn all off to test only your own DNS.")),
+    h("div", { class: "block" }, h("label", { for: "o-urls" }, "Websites to time"), urls, h("small", null, `Up to ${S.info.limits.max_urls} http(s) URLs, one per line. Saved when you leave the field.`)),
+    h("div", { class: "block" }, h("label", { for: "o-extra" }, "Extra resolvers"), extra, h("small", null, "IP or IP:port, such as a Pi-hole or AdGuard Home.")),
+    ctlRow("Latency samples", "Per resolver. 0 uses the default (3 quick, 5 full).", h("input", { class: "f num", type: "number", min: "0", max: "50", value: String(adv.samples), "aria-label": "Latency samples", onchange: (e) => setPref("sadns-samples", e.target.value) })),
+    ctlRow("Query timeout", "Milliseconds. 0 uses the default (2000).", h("input", { class: "f num", type: "number", min: "0", max: "15000", step: "100", value: String(adv.timeout), "aria-label": "Query timeout", onchange: (e) => setPref("sadns-timeout", e.target.value) })));
+}
+
+boot().catch((e) => { if (String(e.message).includes("Sign in")) return; fill($("app"), h("div", { class: "login" }, h("div", { class: "glass card" }, h("h2", null, "SAdns could not load"), h("p", { class: "muted" }, e.message)))); });
 </script>
 </body>
 </html>

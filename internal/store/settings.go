@@ -32,6 +32,7 @@ type ScanPrefs struct {
 	Encrypted   bool     `json:"encrypted"`
 	IPv4        bool     `json:"ipv4"`
 	IPv6        bool     `json:"ipv6"`
+	LowData     bool     `json:"low_data"` // manual scans; off by default (Standard / High Data)
 }
 
 // Schedule is the Auto Run configuration.

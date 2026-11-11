@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"runtime"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/StormAvenger/SAdns/internal/auth"
@@ -142,23 +141,8 @@ func (s *server) handleLogout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-// RunRequest is the body of POST /api/v1/scans.
-type RunRequest struct {
-	Quick     bool     `json:"quick"`
-	Samples   int      `json:"samples"`
-	TimeoutMS int      `json:"timeout_ms"`
-	Providers []string `json:"providers"`
-	// NoProviders must be set explicitly: an empty Providers list alone means
-	// "default (all)", so clients send this when every provider is off.
-	NoProviders bool     `json:"no_providers"`
-	LowData     bool     `json:"low_data"`
-	URLs        []string `json:"urls"`
-	Extra       []string `json:"extra"`
-	Traceroute  bool     `json:"traceroute"`
-	Encrypted   bool     `json:"encrypted"`
-	IPv4        bool     `json:"ipv4"`
-	IPv6        bool     `json:"ipv6"`
-}
+// RunRequest is the body of POST /api/v1/scans (see service.ScanRequest).
+type RunRequest = service.ScanRequest
 
 type infoResp struct {
 	APIVersion int                  `json:"api_version"`
@@ -208,48 +192,8 @@ func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-// configFrom validates a run request into an engine configuration.
 func (s *server) configFrom(req RunRequest) probe.Config {
-	cfg := s.svc.Defaults()
-	cfg.Quick = req.Quick
-	if req.Samples > 0 && req.Samples <= 50 {
-		cfg.Samples = req.Samples
-	}
-	if cfg.Quick && req.Samples == 0 {
-		cfg.Samples = 3
-	}
-	if req.TimeoutMS >= 200 && req.TimeoutMS <= 15000 {
-		cfg.Timeout = time.Duration(req.TimeoutMS) * time.Millisecond
-	}
-	cfg.Providers = nil
-	for i, p := range req.Providers {
-		if i >= 32 {
-			break
-		}
-		cfg.Providers = append(cfg.Providers, p)
-	}
-	cfg.NoProviders = req.NoProviders
-	cfg.URLs = nil
-	for i, u := range req.URLs {
-		if i >= probe.MaxCustomURLs {
-			break
-		}
-		if n, err := probe.NormalizeURL(u); err == nil {
-			cfg.URLs = append(cfg.URLs, n)
-		}
-	}
-	cfg.Extra = nil
-	for i, x := range req.Extra {
-		if i >= 16 {
-			break // resource limit
-		}
-		if x = strings.TrimSpace(x); x != "" && len(x) <= 256 {
-			cfg.Extra = append(cfg.Extra, x)
-		}
-	}
-	cfg.Traceroute, cfg.Encrypted, cfg.IPv4, cfg.IPv6 = req.Traceroute, req.Encrypted, req.IPv4, req.IPv6
-	cfg.LowData = req.LowData
-	return cfg
+	return service.ConfigFrom(s.svc.Defaults(), req)
 }
 
 func (s *server) handleStartScan(w http.ResponseWriter, r *http.Request) {
@@ -387,7 +331,11 @@ func (s *server) handleReport(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleHistory(w http.ResponseWriter, r *http.Request) {
 	h := s.svc.Store().History
-	writeJSON(w, map[string]any{"entries": h.List(), "retain": h.Retain(), "max_pinned": store.MaxPinned})
+	list := h.List()
+	if list == nil {
+		list = []store.Entry{} // [] rather than null for clients
+	}
+	writeJSON(w, map[string]any{"entries": list, "retain": h.Retain(), "max_pinned": store.MaxPinned})
 }
 
 func (s *server) handleEntry(w http.ResponseWriter, r *http.Request) {
@@ -509,7 +457,7 @@ func (s *server) handleTrends(w http.ResponseWriter, r *http.Request) {
 	}
 	includeImported := r.URL.Query().Get("imported") == "1"
 	list := s.svc.Store().History.List()
-	var pts []TrendPoint
+	pts := []TrendPoint{}
 	for _, e := range list {
 		if e.Source == "imported" && !includeImported {
 			continue // other devices would mix vantage points into one line
