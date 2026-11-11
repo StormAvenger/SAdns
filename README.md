@@ -101,7 +101,7 @@ make dist         # all release binaries + SHA256SUMS into dist/
 make mock         # start local mock resolvers for offline UI work
 ```
 
-Releases are built by GitHub Actions when a `v*` tag is pushed.
+Releases are built by GitHub Actions: push a `v*` tag, or run **Actions → Release → Run workflow** with a version.
 
 ## Roadmap
 
