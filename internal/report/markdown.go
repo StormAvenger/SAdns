@@ -62,6 +62,11 @@ func Markdown(r *model.Report) string {
 	if sys != nil {
 		o.p("| **Host** | %s — %s (%s/%s) |", cell(sys.Hostname), cell(sys.OSVersion), sys.OS, sys.Arch)
 	}
+	if v := r.Vantage; v.InContainer {
+		o.p("| **Vantage** | ⚠️ %s (%s) — %s |", cell(v.Mode), cell(v.Runtime), cell(v.Note))
+	} else if v.Mode != "" {
+		o.p("| **Vantage** | measured directly on this host |")
+	}
 	o.p("| **Verdict** | **%s** — %s |", strings.ToUpper(r.Summary.Verdict), cell(r.Summary.Headline))
 	o.p("| **Findings** | ❌ %d fail · ⚠️ %d warn · ℹ️ %d info · ✅ %d pass |", r.Summary.Fail, r.Summary.Warn, r.Summary.Info, r.Summary.Pass)
 	if len(r.Summary.Coverage) > 0 {

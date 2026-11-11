@@ -1,8 +1,10 @@
 // Command SAdns is a full-scope DNS and network diagnostic tool.
 //
-//	SAdns            launch the browser UI (or run in the terminal if no desktop is available)
-//	sadns ui         launch the browser UI
-//	sadns run        run in the terminal and write report files
+//	SAdns              launch the browser UI (or run in the terminal if no desktop is available)
+//	sadns ui           launch the browser UI (loopback only, one-time token)
+//	sadns run          run in the terminal and write report files
+//	sadns serve        long-running service for Docker/LAN: password-protected UI, Auto Run, history
+//	sadns healthcheck  exit 0 if a local `sadns serve` answers /healthz (container HEALTHCHECK)
 package main
 
 import (
@@ -21,6 +23,9 @@ import (
 	"github.com/StormAvenger/SAdns/internal/model"
 	"github.com/StormAvenger/SAdns/internal/probe"
 	"github.com/StormAvenger/SAdns/internal/report"
+	"github.com/StormAvenger/SAdns/internal/service"
+	"github.com/StormAvenger/SAdns/internal/store"
+	"github.com/StormAvenger/SAdns/internal/vantage"
 	"github.com/StormAvenger/SAdns/internal/web"
 )
 
@@ -55,7 +60,9 @@ func realMain(args []string) int {
 		mode, args = args[0], args[1:]
 	}
 	switch mode {
-	case "auto", "ui", "run":
+	case "auto", "ui", "run", "serve":
+	case "healthcheck":
+		return healthcheck(args)
 	case "version":
 		fmt.Printf("SAdns %s (commit %s, built %s, %s/%s)\n", version, commit, built, runtime.GOOS, runtime.GOARCH)
 		return 0
@@ -63,7 +70,7 @@ func realMain(args []string) int {
 		args = []string{"-h"}
 		mode = "auto"
 	default:
-		fmt.Fprintf(os.Stderr, "unknown command %q (use: ui, run, version, help)\n", mode)
+		fmt.Fprintf(os.Stderr, "unknown command %q (use: ui, run, serve, healthcheck, version, help)\n", mode)
 		return 2
 	}
 
@@ -82,7 +89,13 @@ func realMain(args []string) int {
 		privacy    = fs.String("privacy", "technical", "report privacy: full (nothing hidden), technical (hide public IPs, IPv6 prefix, hostname, MACs), public (also LAN IPs and internal domains)")
 		redact     = fs.Bool("redact", false, "shortcut for --privacy public")
 		stdoutFmt  = fs.String("stdout", "", "print the report to stdout instead of writing files: md or json (run mode)")
-		listen     = fs.String("listen", "127.0.0.1:0", "UI listen address (loopback only)")
+		listen     = fs.String("listen", "", "listen address: ui default 127.0.0.1:0 (loopback only); serve default $SADNS_LISTEN or :8053")
+		dataDir    = fs.String("data-dir", "", "history/settings directory (default $SADNS_DATA_DIR or the per-user config dir)")
+		save       = fs.Bool("save", false, "run mode: also store the scan in the history (data dir), e.g. for a Docker one-shot")
+		resetPW    = fs.Bool("reset-password", false, "serve: generate a new random password (prints it once)")
+		noAuth     = fs.Bool("no-auth", false, "serve: disable the password — only allowed on a loopback --listen address")
+		allowHosts = fs.String("allowed-hosts", os.Getenv("SADNS_ALLOWED_HOSTS"), "serve: extra Host names accepted (comma-separated, '*' for any); IP addresses and localhost are always accepted")
+		secureCk   = fs.Bool("secure-cookies", envBool("SADNS_SECURE_COOKIES"), "serve: mark session cookies Secure (set when an HTTPS reverse proxy fronts SAdns)")
 		noBrowser  = fs.Bool("no-browser", false, "UI mode: print the URL instead of opening a browser")
 		concurrent = fs.Int("concurrency", def.Concurrency, "resolvers tested in parallel")
 		providers  listFlag
@@ -94,7 +107,7 @@ func realMain(args []string) int {
 	fs.Var(&extra, "resolver", "extra resolver to test (ip or ip:port); repeatable or comma-separated")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "SAdns %s — full-scope DNS & network diagnostics\n\n", version)
-		fmt.Fprintf(fs.Output(), "Usage:\n  sadns [ui|run] [flags]\n\n  (no command)  open the browser UI; falls back to 'run' when no desktop is available\n  ui            open the browser UI\n  run           run in the terminal and write report .md/.json files\n  version       print version\n\nFlags:\n")
+		fmt.Fprintf(fs.Output(), "Usage:\n  sadns [ui|run|serve] [flags]\n\n  (no command)  open the browser UI; falls back to 'run' when no desktop is available\n  ui            open the browser UI (this computer only)\n  run           run in the terminal and write report .md/.json files\n  serve         long-running, password-protected service for Docker / LAN access (see docs/DOCKER.md)\n  healthcheck   probe a local 'serve' instance (exit 0 = healthy)\n  version       print version\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
@@ -155,12 +168,59 @@ func realMain(args []string) int {
 		}
 	}
 
-	if mode == "ui" {
-		fmt.Printf("SAdns %s — DNS & network diagnostics\n\n", version)
-		err := web.Serve(ctx, web.Options{
-			Listen: *listen, OpenBrowser: !*noBrowser, Defaults: cfg, Tool: tool,
-			Logf: func(f string, a ...any) { fmt.Printf(f+"\n", a...) },
-		})
+	logf := func(f string, a ...any) { fmt.Printf(f+"\n", a...) }
+	if mode == "ui" || mode == "serve" {
+		if mode == "ui" {
+			fmt.Printf("SAdns %s — DNS & network diagnostics\n\n", version)
+		} else {
+			logf("SAdns %s (%s/%s) starting in server mode", version, runtime.GOOS, runtime.GOARCH)
+		}
+		st, err := openStore(*dataDir, mode == "serve", logf)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			pauseIfDoubleClicked()
+			return 1
+		}
+		vant := vantage.Detect(vantage.System(), nil)
+		svc := service.New(service.Options{Store: st, Defaults: cfg, Tool: tool, Vantage: applyVantage, Logf: logf})
+		opt := web.Options{Service: svc, Tool: tool, Vantage: vant, Logf: logf}
+		if mode == "ui" {
+			opt.Mode, opt.Listen, opt.OpenBrowser = web.Desktop, *listen, !*noBrowser
+		} else {
+			opt.Mode, opt.Listen = web.Server, *listen
+			if opt.Listen == "" {
+				opt.Listen = envOr("SADNS_LISTEN", ":8053")
+			}
+			opt.SecureCookies = *secureCk
+			opt.NoAuth = *noAuth || strings.EqualFold(os.Getenv("SADNS_AUTH"), "none")
+			for _, h := range strings.Split(*allowHosts, ",") {
+				if h = strings.TrimSpace(h); h != "" {
+					opt.AllowedHosts = append(opt.AllowedHosts, h)
+				}
+			}
+			if used, err := applySettingsEnv(st); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				return 2
+			} else if len(used) > 0 {
+				logf("Settings from environment: %s", strings.Join(used, ", "))
+			}
+			if !opt.NoAuth {
+				mgr, err := setupAuth(st, *resetPW, logf)
+				if err != nil {
+					fmt.Fprintln(os.Stderr, "error:", err)
+					return 1
+				}
+				opt.Auth = mgr
+			} else {
+				logf("WARNING: authentication is disabled (--no-auth). Only loopback clients can connect.")
+			}
+			if vant.InContainer {
+				logf("Vantage: %s (%s) — %s", vant.Mode, vant.Detection, vant.Note)
+			}
+		}
+		go svc.Run(ctx)
+		err = web.Serve(ctx, opt)
+		svc.Shutdown(10 * time.Second)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "error:", err)
 			pauseIfDoubleClicked()
@@ -173,7 +233,15 @@ func realMain(args []string) int {
 	if *redact {
 		level = "public"
 	}
-	return runCLI(ctx, cfg, tool, *outDir, level, *stdoutFmt)
+	var st *store.Store
+	if *save {
+		var err error
+		if st, err = openStore(*dataDir, true, func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }); err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			return 1
+		}
+	}
+	return runCLI(ctx, cfg, tool, *outDir, level, *stdoutFmt, st)
 }
 
 func flagSet(fs *flag.FlagSet, name string) bool {
@@ -186,7 +254,7 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 	return set
 }
 
-func runCLI(ctx context.Context, cfg probe.Config, tool model.ToolInfo, outDir string, privacy string, stdoutFmt string) int {
+func runCLI(ctx context.Context, cfg probe.Config, tool model.ToolInfo, outDir string, privacy string, stdoutFmt string, st *store.Store) int {
 	quiet := stdoutFmt != ""
 	logf := func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }
 	if !quiet {
@@ -213,7 +281,19 @@ func runCLI(ctx context.Context, cfg probe.Config, tool model.ToolInfo, outDir s
 	})
 	rep := eng.Run(ctx)
 	rep.Tool = tool
+	applyVantage(rep)
 	analyze.Run(rep)
+	if st != nil {
+		status := ""
+		if rep.Cancelled {
+			status = store.StatusCancelled
+		}
+		if e, err := st.History.Save(rep, store.SaveMeta{Trigger: store.TriggerCLI, Status: status}); err != nil {
+			logf("Could not save to history: %v", err)
+		} else if !quiet {
+			logf("Saved to history as %s (%s)", e.ID, st.Dir)
+		}
+	}
 
 	switch stdoutFmt {
 	case "md", "markdown":

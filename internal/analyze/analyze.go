@@ -12,6 +12,7 @@ import (
 
 	"github.com/StormAvenger/SAdns/internal/model"
 	"github.com/StormAvenger/SAdns/internal/sysinfo"
+	"github.com/StormAvenger/SAdns/internal/vantage"
 )
 
 type az struct {
@@ -51,6 +52,7 @@ func Run(r *model.Report) {
 	a.webLoads()
 	a.routing()
 	gaps := a.coverage()
+	gaps = append(gaps, a.vantage()...)
 
 	rank := map[string]int{model.Fail: 0, model.Warn: 1, model.Info: 2, model.Pass: 3}
 	// Within a severity, root causes (connectivity, interception, the system
@@ -65,8 +67,32 @@ func Run(r *model.Report) {
 	for i := range a.f {
 		a.f[i].Layer = layerOf(a.f[i])
 	}
+	containerView := vantage.IsContainerView(r.Vantage)
+	if containerView {
+		for i := range a.f {
+			if l := a.f[i].Layer; (l == "lan" || l == "gateway") && a.f[i].Severity != model.Info {
+				a.f[i].Detail += " (Container view: this describes the container's virtual network and the Docker bridge, not your Wi-Fi/LAN or router.)"
+			}
+		}
+	}
 	r.Findings = a.f
 	s := model.Summary{Layers: layers(a.f)}
+	if containerView {
+		for i := range s.Layers {
+			l := &s.Layers[i]
+			switch l.Key {
+			case "device":
+				l.Name = "Container"
+			case "lan":
+				l.Name = "Container network"
+			case "gateway":
+				l.Name = "Docker bridge"
+			default:
+				continue
+			}
+			l.Note = "container view — " + l.Note
+		}
+	}
 	for _, f := range a.f {
 		switch f.Severity {
 		case model.Pass:
@@ -103,6 +129,42 @@ func Run(r *model.Report) {
 		s.Headline = "Scan was cancelled — results are incomplete"
 	}
 	r.Summary = s
+}
+
+// vantage explains container measurements and returns the coverage gaps
+// they imply. Reports from a bridge-networked container must never read as
+// a description of the host or the home network.
+func (a *az) vantage() []string {
+	v := a.r.Vantage
+	if !v.InContainer {
+		return nil
+	}
+	ev := []string{"vantage: " + v.Mode, "detected by: " + v.Detection}
+	switch v.Mode {
+	case vantage.ContainerBridge, vantage.ContainerOther:
+		a.add(model.Info, "system", "VANTAGE-CONTAINER", "Measured from inside a container — device, LAN and gateway results describe the container network, not the host",
+			v.Note, "To diagnose the Docker host itself, run the container with host networking (an informed opt-in; see docs/DOCKER.md) or run SAdns directly on the host. For other devices, run SAdns on them and import their reports.", ev...)
+		if v.Mode == vantage.ContainerBridge {
+			a.conf(confirmed)
+		} else {
+			a.conf(suspected)
+		}
+		var g []string
+		for _, u := range v.Unavailable {
+			g = append(g, "not measurable from this container: "+u)
+		}
+		a.sigGaps++
+		return g
+	case vantage.ContainerHostNet:
+		a.add(model.Info, "system", "VANTAGE-HOST-NETWORK", "Measured from a container using the host's network",
+			v.Note, "", ev...)
+		var g []string
+		for _, u := range v.Unavailable {
+			g = append(g, "not measurable from this container: "+u)
+		}
+		return g
+	}
+	return nil
 }
 
 // coverage lists checks that could not run or could not reach a conclusion.
@@ -869,6 +931,8 @@ func layerOf(f model.Finding) string {
 		return "lan"
 	case has("GW-", "DOUBLE-NAT", "REBIND", "DDR", "CANARY", "LOCAL-ENC"):
 		return "gateway"
+	case has("VANTAGE-"):
+		return "device"
 	case has("CLOCK", "NTP-OFFSET", "STUB-", "OS-", "SYS-WIN", "ROUTE-", "COVERAGE", "SYS-NONE"):
 		return "device"
 	case has("CONN-", "DUALSTACK", "PING-", "MTU-", "CGNAT", "NTP-", "CAPTIVE", "HTTP-", "NAT64", "TRACE", "TLS-INTERCEPT"):

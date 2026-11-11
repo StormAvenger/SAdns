@@ -339,3 +339,32 @@ func TestCompare(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyEnv(t *testing.T) {
+	set := DefaultSettings()
+	env := map[string]string{"SADNS_SCHEDULE_ENABLED": "true", "SADNS_SCHEDULE_INTERVAL": "6h", "SADNS_SCHEDULE_MODE": "Full", "SADNS_SCHEDULE_LOW_DATA": "yes", "SADNS_HISTORY_RETAIN": "250"}
+	used, err := ApplyEnv(&set, func(k string) string { return env[k] })
+	if err != nil || len(used) != 5 {
+		t.Fatalf("%v %v", used, err)
+	}
+	if !set.Schedule.Enabled || set.Schedule.IntervalMinutes != 360 || set.Schedule.Unit != "hours" || set.Schedule.Mode != "full" || !set.Schedule.LowData || set.Retain != 250 {
+		t.Fatalf("%+v", set)
+	}
+	for k, v := range map[string]string{"SADNS_SCHEDULE_INTERVAL": "2m", "SADNS_SCHEDULE_ENABLED": "maybe", "SADNS_SCHEDULE_MODE": "deep", "SADNS_HISTORY_RETAIN": "0"} {
+		s := DefaultSettings()
+		if _, err := ApplyEnv(&s, func(x string) string {
+			if x == k {
+				return v
+			}
+			return ""
+		}); err == nil {
+			t.Errorf("%s=%s accepted", k, v)
+		}
+	}
+	if n, u, err := ParseInterval("1d"); err != nil || n != 1440 || u != "days" {
+		t.Error("1d")
+	}
+	if n, _, err := ParseInterval("45"); err != nil || n != 45 {
+		t.Error("45")
+	}
+}

@@ -21,6 +21,9 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, dirPerm); err != nil {
 		return nil, err
 	}
+	if runtime.GOOS != "windows" {
+		_ = os.Chmod(dir, dirPerm) // best effort: a pre-created volume may belong to someone else
+	}
 	for _, sub := range []string{"config", "history", "secrets"} {
 		p := filepath.Join(dir, sub)
 		if err := os.MkdirAll(p, dirPerm); err != nil {
