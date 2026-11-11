@@ -16,6 +16,7 @@ func TestCommittedSchemaIsCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile("../../docs/schema/report.schema.json")
+	got = bytes.ReplaceAll(got, []byte("\r\n"), []byte("\n")) // Windows checkouts may convert line endings
 	if err != nil || !bytes.Equal(got, want) {
 		t.Fatal("docs/schema/report.schema.json is out of date: run `go run ./tools/schemagen > docs/schema/report.schema.json`")
 	}
