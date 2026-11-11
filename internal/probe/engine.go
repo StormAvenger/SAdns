@@ -124,6 +124,16 @@ func (e *Engine) Run(ctx context.Context) *model.Report {
 	rep.OSLookups = e.osLookups(ctx)
 	rep.DualStack = e.dualStack(ctx, rep.OSLookups)
 
+	// Network-health checks (ping, MTU, NTP, captive portal, NAT64, local names)
+	// run alongside the resolver suite.
+	var nhWG sync.WaitGroup
+	nhWG.Add(1)
+	go func() {
+		defer nhWG.Done()
+		rep.Network = e.netHealth(ctx, rep.Connectivity)
+		e.log(fmt.Sprintf("network health: %d ping series, %d MTU probes, %d NTP servers, %d HTTP checks", len(rep.Network.Pings), len(rep.Network.MTU), len(rep.Network.NTP), len(rep.Network.HTTP)))
+	}()
+
 	targets := e.targets(rep.Connectivity)
 	e.phase(0.30, "resolvers", fmt.Sprintf("Testing %d resolver addresses", len(targets)))
 	rep.Resolvers = make([]model.ResolverResult, len(targets))
@@ -158,6 +168,7 @@ func (e *Engine) Run(ctx context.Context) *model.Report {
 	}
 	e.egressASNs(ctx, rep)
 
+	nhWG.Wait()
 	rep.Failover = e.failover(rep)
 	rep.Routing.Choices = e.routeChoices(rep)
 

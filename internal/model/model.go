@@ -37,6 +37,7 @@ type Report struct {
 	Interception Interception     `json:"interception"`
 	Failover     Failover         `json:"failover"`
 	Routing      Routing          `json:"routing"`
+	Network      NetHealth        `json:"network_health"`
 	Redacted     bool             `json:"redacted"`
 }
 
@@ -213,6 +214,14 @@ type ResolverResult struct {
 	Filtering   string            `json:"filtering"` // blocks-ads, no-ad-blocking, unknown
 	NXDOMAIN    string            `json:"nxdomain"`  // correct, hijacked, unknown
 	Software    string            `json:"software,omitempty"`
+	Rebind      string            `json:"rebind_protection"` // on, off, unknown
+	Caching     string            `json:"caching"`           // yes, no, unknown
+	Cookies     string            `json:"cookies"`           // yes, no
+	Case0x20    string            `json:"case_0x20"`         // preserved, broken, unknown
+	DDR         []string          `json:"ddr_targets,omitempty"`
+	CanaryDoH   string            `json:"canary_doh"`   // disables-doh, allows-doh, unknown
+	CanaryRelay string            `json:"canary_relay"` // blocks-relay, allows-relay, unknown
+	OpenPorts   []int             `json:"encrypted_ports_open,omitempty"`
 	Identity    map[string]string `json:"identity,omitempty"`
 	Egress      Egress            `json:"egress"`
 	Tests       []TestResult      `json:"tests"`
@@ -286,4 +295,71 @@ type RouteChoice struct {
 type Routing struct {
 	Choices []RouteChoice `json:"route_choices"`
 	Traces  []Trace       `json:"traceroutes"`
+}
+
+// NetHealth holds link/path quality and service checks beyond DNS.
+type NetHealth struct {
+	Pings []Ping      `json:"pings"`
+	MTU   []PathMTU   `json:"path_mtu"`
+	NTP   []NTPResult `json:"ntp"`
+	HTTP  []HTTPCheck `json:"http_checks"`
+	NAT64 NAT64       `json:"nat64"`
+	Local []OSLookup  `json:"local_names"`
+}
+
+// Ping is an ICMP echo series run via the system ping tool.
+type Ping struct {
+	Target   string        `json:"target"`
+	Label    string        `json:"label"`
+	Family   int           `json:"family"`
+	Sent     int           `json:"sent"`
+	Received int           `json:"received"`
+	LossPct  float64       `json:"loss_pct"`
+	MinMS    float64       `json:"min_ms"`
+	AvgMS    float64       `json:"avg_ms"`
+	MaxMS    float64       `json:"max_ms"`
+	JitterMS float64       `json:"jitter_ms"`
+	Error    string        `json:"error,omitempty"`
+	Raw      *execx.Output `json:"raw,omitempty"`
+}
+
+// PathMTU is the largest unfragmented packet that reached the target.
+type PathMTU struct {
+	Target string   `json:"target"`
+	Family int      `json:"family"`
+	MTU    int      `json:"mtu"`
+	Detail string   `json:"detail"`
+	Error  string   `json:"error,omitempty"`
+	Probes []string `json:"probes,omitempty"`
+}
+
+// NTPResult is one SNTP exchange.
+type NTPResult struct {
+	Server   string  `json:"server"`
+	Addr     string  `json:"addr"`
+	OK       bool    `json:"ok"`
+	OffsetMS float64 `json:"offset_ms"`
+	RTTMS    float64 `json:"rtt_ms"`
+	Stratum  int     `json:"stratum"`
+	Error    string  `json:"error,omitempty"`
+}
+
+// HTTPCheck is an OS-style connectivity / captive-portal probe.
+type HTTPCheck struct {
+	Name   string  `json:"name"`
+	URL    string  `json:"url"`
+	OK     bool    `json:"ok"`
+	Status int     `json:"status"`
+	Expect string  `json:"expect"`
+	Detail string  `json:"detail"`
+	Proxy  string  `json:"proxy_headers,omitempty"`
+	MS     float64 `json:"ms"`
+	Error  string  `json:"error,omitempty"`
+}
+
+// NAT64 reports DNS64/NAT64 detection via ipv4only.arpa (RFC 7050).
+type NAT64 struct {
+	Detected bool     `json:"detected"`
+	Prefixes []string `json:"prefixes,omitempty"`
+	Detail   string   `json:"detail"`
 }

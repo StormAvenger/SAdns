@@ -53,8 +53,9 @@ const (
 
 // EDNS option codes.
 const (
-	OptNSID uint16 = 3
-	OptEDE  uint16 = 15
+	OptNSID   uint16 = 3
+	OptCookie uint16 = 10
+	OptEDE    uint16 = 15
 )
 
 var typeNames = map[uint16]string{
@@ -192,6 +193,8 @@ type QueryOpts struct {
 	UDPSize uint16 // advertised UDP payload size (default 1232)
 	DO      bool   // DNSSEC OK
 	NSID    bool   // request the name server identifier
+	Version uint8  // EDNS version (0 normally; 1 to test BADVERS handling)
+	Cookie  []byte // client cookie (8 bytes) to send (RFC 7873)
 }
 
 // NewQuery builds a query with a random ID.
@@ -204,14 +207,17 @@ func NewQuery(name string, qtype uint16, o QueryOpts) *Msg {
 		Header:   Header{ID: RandomID(), RD: !o.NoRD, AD: o.AD, CD: o.CD},
 		Question: []Question{{Name: Fqdn(name), Type: qtype, Class: class}},
 	}
-	if o.EDNS || o.DO || o.NSID {
+	if o.EDNS || o.DO || o.NSID || o.Version > 0 || len(o.Cookie) > 0 {
 		size := o.UDPSize
 		if size == 0 {
 			size = 1232
 		}
-		e := &EDNS{UDPSize: size, DO: o.DO}
+		e := &EDNS{UDPSize: size, DO: o.DO, Version: o.Version}
 		if o.NSID {
 			e.Options = append(e.Options, EDNSOption{Code: OptNSID})
+		}
+		if len(o.Cookie) > 0 {
+			e.Options = append(e.Options, EDNSOption{Code: OptCookie, Data: append([]byte(nil), o.Cookie...)})
 		}
 		m.EDNS = e
 	}
@@ -583,6 +589,12 @@ func rdataText(msg []byte, off, l int, t uint16) string {
 		if l >= 4 {
 			return fmt.Sprintf("flags=%d proto=%d alg=%d keylen=%d", binary.BigEndian.Uint16(d), d[2], d[3], l-4)
 		}
+	case TypeSVCB, TypeHTTPS:
+		if l >= 3 {
+			if n, _, err := readName(msg, off+2); err == nil {
+				return fmt.Sprintf("%d %s (+%d bytes params)", binary.BigEndian.Uint16(d), n, l-2-len(EncodeName(n)))
+			}
+		}
 	case TypeDS:
 		if l >= 4 {
 			return fmt.Sprintf("keytag=%d alg=%d digest=%d", binary.BigEndian.Uint16(d), d[2], d[3])
@@ -667,6 +679,39 @@ func (m *Msg) EDEs() []EDE {
 		}
 	}
 	return out
+}
+
+// Cookie returns the raw COOKIE option payload (client+server cookie), if any.
+func (m *Msg) Cookie() []byte {
+	if m.EDNS == nil {
+		return nil
+	}
+	for _, o := range m.EDNS.Options {
+		if o.Code == OptCookie {
+			return o.Data
+		}
+	}
+	return nil
+}
+
+// SVCBTargets returns the TargetName of SVCB/HTTPS answers (RFC 9460).
+func (m *Msg) SVCBTargets() []string {
+	var out []string
+	for _, rr := range m.Answer {
+		if rr.Type == TypeSVCB || rr.Type == TypeHTTPS {
+			if f := strings.Fields(rr.Text); len(f) >= 2 {
+				out = append(out, f[1])
+			}
+		}
+	}
+	return out
+}
+
+// RandomBytes returns n random bytes.
+func RandomBytes(n int) []byte {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return b
 }
 
 // NSID returns the name server identifier if present (printable, else hex).

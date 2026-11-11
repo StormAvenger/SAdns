@@ -136,3 +136,72 @@ func TestStats(t *testing.T) {
 		t.Fatalf("%+v", l)
 	}
 }
+
+func TestExtraHealthy(t *testing.T) {
+	r := runMock(t, mockdns.Behavior{Caching: true})
+	for _, id := range []string{"case_0x20", "edns_version", "cookie", "https_rr", "burst", "cache"} {
+		if s := status(r, id); s != model.Pass {
+			t.Errorf("%s = %s (%s)", id, s, r.Test(id).Detail)
+		}
+	}
+	if r.Case0x20 != "preserved" || r.Cookies != "yes" || r.Rebind != "off" || r.Caching != "yes" ||
+		r.CanaryDoH != "allows-doh" || r.CanaryRelay != "allows-relay" || len(r.DDR) != 0 {
+		t.Errorf("unexpected: %+v", r)
+	}
+}
+
+func TestExtraQuirky(t *testing.T) {
+	r := runMock(t, mockdns.Behavior{Lowercase: true, BadHTTPS: true, RebindProtect: true, Canaries: true, RateLimit: 8})
+	for id, want := range map[string]string{"case_0x20": model.Warn, "https_rr": model.Warn, "burst": model.Warn} {
+		if s := status(r, id); s != want {
+			t.Errorf("%s = %s want %s (%s)", id, s, want, r.Test(id).Detail)
+		}
+	}
+	if r.Rebind != "on" || r.CanaryDoH != "disables-doh" || r.CanaryRelay != "blocks-relay" {
+		t.Errorf("rebind=%s doh=%s relay=%s ddr=%v", r.Rebind, r.CanaryDoH, r.CanaryRelay, r.DDR)
+	}
+	if r.Caching != "no" {
+		t.Errorf("caching=%s", r.Caching)
+	}
+}
+
+func TestDDR(t *testing.T) {
+	r := runMock(t, mockdns.Behavior{DDR: true})
+	if len(r.DDR) != 1 || r.DDR[0] != "dns.google." {
+		t.Fatalf("ddr=%v (%s)", r.DDR, r.Test("ddr").Detail)
+	}
+}
+
+func TestParsePing(t *testing.T) {
+	linux := `PING 1.1.1.1 (1.1.1.1) 56(84) bytes of data.
+64 bytes from 1.1.1.1: icmp_seq=1 ttl=57 time=11.2 ms
+64 bytes from 1.1.1.1: icmp_seq=3 ttl=57 time=12.8 ms
+
+--- 1.1.1.1 ping statistics ---
+3 packets transmitted, 2 received, 33.3333% packet loss, time 402ms
+rtt min/avg/max/mdev = 11.2/12.0/12.8/0.8 ms`
+	if r := parsePing(linux, "1.1.1.1"); len(r) != 2 || r[0] != 11.2 {
+		t.Fatalf("linux %v", r)
+	}
+	win := "Pinging 1.1.1.1 with 32 bytes of data:\r\nReply from 1.1.1.1: bytes=32 time<1ms TTL=57\r\nReply from 1.1.1.1: bytes=32 time=14ms TTL=57\r\nRequest timed out.\r\n\r\nPing statistics for 1.1.1.1:\r\n    Packets: Sent = 3, Received = 2, Lost = 1 (33% loss),\r\nApproximate round trip times in milli-seconds:\r\n    Minimum = 0ms, Maximum = 14ms, Average = 7ms"
+	if r := parsePing(win, "1.1.1.1"); len(r) != 2 || r[1] != 14 {
+		t.Fatalf("windows %v", r)
+	}
+	de := "Antwort von 1.1.1.1: Bytes=32 Zeit=9ms TTL=57"
+	if r := parsePing(de, "1.1.1.1"); len(r) != 1 || r[0] != 9 {
+		t.Fatalf("german %v", r)
+	}
+	v6 := "64 bytes from 2606:4700:4700::1111: icmp_seq=1 ttl=57 time=10.1 ms"
+	if r := parsePing(v6, "2606:4700:4700::1111"); len(r) != 1 {
+		t.Fatalf("v6 %v", r)
+	}
+}
+
+func TestNTPTimestamps(t *testing.T) {
+	now := time.Now()
+	b := make([]byte, 8)
+	putNTPTime(b, now)
+	if d := ntpTime(b).Sub(now); d > time.Microsecond || d < -time.Microsecond {
+		t.Fatalf("round trip off by %v", d)
+	}
+}

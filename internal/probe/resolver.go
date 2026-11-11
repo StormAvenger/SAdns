@@ -127,6 +127,7 @@ func (e *Engine) runResolver(ctx context.Context, t target) model.ResolverResult
 	if r.OK() {
 		basic = r.Msg
 	}
+	basicTime := time.Now()
 
 	// 2. TCP/53 (always tried, even if UDP failed — distinguishes UDP blocking).
 	rt, _ := e.query(ctx, tcp, nameBasic, dnswire.TypeA, dnswire.QueryOpts{EDNS: true})
@@ -146,7 +147,7 @@ func (e *Engine) runResolver(ctx context.Context, t target) model.ResolverResult
 	res.Tests = append(res.Tests, tt)
 
 	if !res.Reachable {
-		for _, id := range []string{"udp_aaaa", "latency", "edns", "tc_fallback", "edns_large", "dnssec", "nxdomain", "filtering", "identity", "egress"} {
+		for _, id := range []string{"udp_aaaa", "latency", "edns", "tc_fallback", "edns_large", "dnssec", "nxdomain", "filtering", "identity", "egress", "case_0x20", "edns_version", "https_rr", "burst", "rebind"} {
 			res.Tests = append(res.Tests, model.TestResult{ID: id, Name: id, Status: model.Skip, Detail: "resolver unreachable"})
 		}
 		if t.prov != nil && e.cfg.Encrypted {
@@ -369,9 +370,17 @@ func (e *Engine) runResolver(ctx context.Context, t target) model.ResolverResult
 	}
 	res.Tests = append(res.Tests, eg)
 
-	// 12. Encrypted transports for public providers.
+	// 12. Protocol compliance and behaviour.
+	e.extraTests(ctx, t, &res, udp)
+
+	// 13. Encrypted transports for public providers.
 	if t.prov != nil && e.cfg.Encrypted {
 		e.encryptedTests(ctx, t, &res)
+	}
+
+	// 14. Caching (needs ≥1 s since the first answer).
+	if ttl1, ok := firstTTL(basic, dnswire.TypeA); ok {
+		e.cacheTest(ctx, &res, udp, ttl1, basicTime)
 	}
 	return res
 }

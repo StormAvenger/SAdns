@@ -27,7 +27,12 @@ func cell(s string) string {
 	return s
 }
 
-type w struct{ sb strings.Builder }
+type w struct {
+	sb strings.Builder
+	n  int
+}
+
+func (w *w) h2(title string) { w.n++; w.p("## %d. %s", w.n, title) }
 
 func (w *w) p(format string, a ...any) { fmt.Fprintf(&w.sb, format, a...); w.sb.WriteByte('\n') }
 func (w *w) nl()                       { w.sb.WriteByte('\n') }
@@ -70,7 +75,7 @@ func Markdown(r *model.Report) string {
 	o.nl()
 
 	// 1. Findings
-	o.p("## 1. Findings")
+	o.h2("Findings")
 	o.nl()
 	var passes []model.Finding
 	for _, f := range r.Findings {
@@ -117,7 +122,7 @@ func Markdown(r *model.Report) string {
 
 	// 2. Environment
 	if sys != nil {
-		o.p("## 2. Network environment")
+		o.h2("Network environment")
 		o.nl()
 		o.p("### Interfaces")
 		o.nl()
@@ -210,7 +215,7 @@ func Markdown(r *model.Report) string {
 
 	// 3. Connectivity
 	c := r.Connectivity
-	o.p("## 3. Internet connectivity")
+	o.h2("Internet connectivity")
 	o.nl()
 	o.p("| Family | Has address | Global address | Default route | Working |")
 	o.p("|---|---|---|---|---|")
@@ -242,8 +247,67 @@ func Markdown(r *model.Report) string {
 	}
 	o.nl()
 
+	// Network health
+	nh := r.Network
+	o.h2("Network health")
+	o.nl()
+	if len(nh.Pings) > 0 {
+		o.p("| Ping target | Purpose | Replies | Loss | Min | Avg | Max | Jitter | Note |")
+		o.p("|---|---|---|---|---|---|---|---|---|")
+		for _, p := range nh.Pings {
+			if p.Sent == 0 {
+				o.p("| %s | %s | — | — | — | — | — | — | %s |", p.Target, cell(p.Label), cell(p.Error))
+				continue
+			}
+			o.p("| %s | %s | %d/%d | %.0f%% | %.1f ms | %.1f ms | %.1f ms | %.1f ms | %s |", p.Target, cell(p.Label), p.Received, p.Sent, p.LossPct, p.MinMS, p.AvgMS, p.MaxMS, p.JitterMS, cell(p.Error))
+		}
+		o.nl()
+	}
+	if len(nh.MTU) > 0 {
+		o.p("| Path MTU target | Family | MTU | Interpretation | Probes |")
+		o.p("|---|---|---|---|---|")
+		for _, m := range nh.MTU {
+			mtu := "?"
+			if m.MTU > 0 {
+				mtu = fmt.Sprint(m.MTU)
+			}
+			o.p("| %s | IPv%d | %s | %s | %s |", m.Target, m.Family, mtu, cell(nonEmpty(m.Detail, m.Error)), cell(strings.Join(m.Probes, "; ")))
+		}
+		o.nl()
+	}
+	if len(nh.NTP) > 0 {
+		o.p("| NTP server | Address | OK | Clock offset | Delay | Stratum | Error |")
+		o.p("|---|---|---|---|---|---|---|")
+		for _, n := range nh.NTP {
+			o.p("| %s | %s | %s | %+.1f ms | %.1f ms | %d | %s |", n.Server, n.Addr, okIcon(n.OK), n.OffsetMS, n.RTTMS, n.Stratum, cell(n.Error))
+		}
+		o.nl()
+	}
+	if len(nh.HTTP) > 0 {
+		o.p("| Connectivity check | URL | OK | HTTP | Time | Result | Proxy headers |")
+		o.p("|---|---|---|---|---|---|---|")
+		for _, h := range nh.HTTP {
+			o.p("| %s | %s | %s | %d | %.0f ms | %s | %s |", h.Name, h.URL, okIcon(h.OK), h.Status, h.MS, cell(nonEmpty(h.Detail, h.Error)), cell(h.Proxy))
+		}
+		o.nl()
+	}
+	o.p("- **NAT64/DNS64:** %s", nonEmpty(nh.NAT64.Detail, "not checked"))
+	o.nl()
+	if len(nh.Local) > 0 {
+		o.p("| Local name | Purpose | Result | Answer / error |")
+		o.p("|---|---|---|---|")
+		for _, l := range nh.Local {
+			ans := strings.Join(l.Addrs, ", ")
+			if l.Error != "" {
+				ans = l.Error
+			}
+			o.p("| %s | %s | %s | %s |", l.Name, cell(l.Purpose), okIcon(l.OK), cell(ans))
+		}
+		o.nl()
+	}
+
 	// 4. OS path
-	o.p("## 4. Operating-system resolution path")
+	o.h2("Operating-system resolution path")
 	o.nl()
 	o.p("Lookups made through the OS resolver API (what browsers and apps use), including the hosts file, search domains, stub resolvers and failover.")
 	o.nl()
@@ -269,12 +333,12 @@ func Markdown(r *model.Report) string {
 	}
 
 	// 5. Matrix
-	o.p("## 5. Resolver test matrix")
+	o.h2("Resolver test matrix")
 	o.nl()
 	o.p("Legend: ✅ pass · ⚠️ warn · ❌ fail · ℹ️ info · ➖ skipped. Latency = median of repeated cached queries.")
 	o.nl()
-	o.p("| Resolver | Address | UDP | TCP | AAAA | EDNS | TC→TCP | Big UDP | DNSSEC | NXDOMAIN | Ad filter | Median | Uncached | Loss | DoT | DoH | Egress AS |")
-	o.p("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+	o.p("| Resolver | Address | UDP | TCP | AAAA | EDNS | TC→TCP | Big UDP | 0x20 | EDNS v1 | HTTPS RR | Burst | DNSSEC | NXDOMAIN | Ad filter | Rebind prot. | Cache | Median | Uncached | Loss | DoT | DoH | Egress AS |")
+	o.p("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
 	for i := range r.Resolvers {
 		x := &r.Resolvers[i]
 		st := func(id string) string {
@@ -298,14 +362,15 @@ func Markdown(r *model.Report) string {
 				as += " ❗"
 			}
 		}
-		o.p("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |",
+		o.p("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |",
 			cell(x.Label), x.Addr, st("udp_a"), st("tcp"), st("udp_aaaa"), st("edns"), st("tc_fallback"), st("edns_large"),
-			x.DNSSEC, x.NXDOMAIN, x.Filtering, med, cold, loss, st("dot"), st("doh"), as)
+			st("case_0x20"), st("edns_version"), st("https_rr"), st("burst"),
+			x.DNSSEC, x.NXDOMAIN, x.Filtering, nonEmpty(x.Rebind, "—"), nonEmpty(x.Caching, "—"), med, cold, loss, st("dot"), st("doh"), as)
 	}
 	o.nl()
 
 	// 6. Details
-	o.p("## 6. Resolver details")
+	o.h2("Resolver details")
 	o.nl()
 	for i := range r.Resolvers {
 		x := &r.Resolvers[i]
@@ -372,7 +437,7 @@ func Markdown(r *model.Report) string {
 	}
 
 	// 7. Interception
-	o.p("## 7. Interception & integrity")
+	o.h2("Interception & integrity")
 	o.nl()
 	o.p("| Probe | Status | Detail |")
 	o.p("|---|---|---|")
@@ -392,7 +457,7 @@ func Markdown(r *model.Report) string {
 
 	// 8. Failover
 	fo := r.Failover
-	o.p("## 8. DNS failover")
+	o.h2("DNS failover")
 	o.nl()
 	o.p("- Configured system resolvers: %d (working: %d, distinct hosts: %d)", fo.ConfiguredCount, fo.WorkingCount, fo.DistinctHosts)
 	if fo.Model != "" {
@@ -407,7 +472,7 @@ func Markdown(r *model.Report) string {
 	o.nl()
 
 	// 9. Routing
-	o.p("## 9. Routing")
+	o.h2("Routing")
 	o.nl()
 	if len(r.Routing.Choices) > 0 {
 		o.p("| Destination | Purpose | Interface | Source address | On-link | VPN | Error |")
@@ -440,7 +505,7 @@ func Markdown(r *model.Report) string {
 	}
 
 	// 10. Methodology
-	o.p("## 10. Methodology (what each test means)")
+	o.h2("Methodology (what each test means)")
 	o.nl()
 	for _, m := range methodology {
 		o.p("- **%s** — %s", m[0], m[1])
@@ -499,6 +564,21 @@ var methodology = [][2]string{
 	{"OS resolution path", "Lookups through the operating system resolver API, as applications perform them (hosts file, search domains, stub resolvers, failover)."},
 	{"Connectivity", "TCP connects to anycast addresses of Cloudflare/Google/Quad9 on port 443 over IPv4 and IPv6; public IP, PoP and server time from Cloudflare's /cdn-cgi/trace."},
 	{"Routing", "Kernel route selection (source address/interface) for each resolver, plus the system traceroute tool toward 1.1.1.1 and 2606:4700:4700::1111."},
+	{"0x20 case", "Query sent with randomised letter case (eXaMpLe.CoM); the reply must echo it exactly. Rewriting means a DNS-mangling middlebox and breaks 0x20 anti-spoofing."},
+	{"EDNS version", "Query with EDNS version 1; RFC 6891 requires BADVERS. A silent drop means a firewall/resolver discards unknown EDNS — a future-compatibility hazard."},
+	{"DNS Cookies", "RFC 7873 client cookie sent; a server cookie in the reply means spoofing protection is supported."},
+	{"HTTPS RR", "cloudflare.com type HTTPS (65). Safari/Chrome/iOS query this for every site; old routers return FORMERR or drop it."},
+	{"Burst", "20 identical queries in parallel; losses indicate rate limiting or a small concurrent-query table (dnsmasq dns-forward-max)."},
+	{"Rebinding protection", "10.0.0.1.nip.io (public name → private IP). An empty/NX answer while public resolvers return 10.0.0.1 means rebinding protection is on."},
+	{"Caching", "TTL of example.com compared across ≥1 s; a decreasing TTL means answers come from a cache."},
+	{"DDR", "_dns.resolver.arpa SVCB (RFC 9462): resolver-advertised encrypted endpoints that Windows 11/Apple OSes auto-upgrade to."},
+	{"Canary domains", "use-application-dns.net (Mozilla: negative = disable auto-DoH) and mask.icloud.com (Apple: negative = Private Relay blocked)."},
+	{"Ping", "System ping to the default gateway (LAN/Wi-Fi quality) and to 1.1.1.1 / 2606:4700:4700::1111 (internet): loss, min/avg/max, jitter."},
+	{"Path MTU", "Don't-fragment ICMP echo, binary search between 1228 and 1500 bytes (IPv4) to find the largest packet that crosses the path."},
+	{"NTP", "SNTP (UDP 123) to time.cloudflare.com and time.google.com by IP: reachability, clock offset and delay."},
+	{"Connectivity checks", "The HTTP probes Android/Chrome, Apple and Windows use (generate_204, hotspot-detect, connecttest). Redirects or other bodies mean a captive portal or HTTP interception; Via/X-Cache headers reveal proxies."},
+	{"NAT64", "AAAA lookup of ipv4only.arpa (RFC 7050); an answer reveals DNS64 and the NAT64 prefix."},
+	{"Local names", "This computer's hostname, PTR lookups of its IP and the gateway, and 'wpad' (which should not exist)."},
 	{"Direct path", "All DNS tests bypass the OS resolver and any HTTP proxy and talk to the exact IP being tested, so each result reflects that server and path only."},
 }
 

@@ -13,6 +13,10 @@
 
 <sub>Screenshot from a lab VM whose network transparently intercepts all DNS — SAdns flags it as the root cause.</sub>
 
+![Network health](docs/img/network.png)
+
+The interface uses a Liquid Glass–style tinted dark theme; pick a tint with the swatches in the toolbar.
+
 ## What it tests
 
 | Area | Checks |
@@ -20,6 +24,9 @@
 | **Connectivity** | IPv4 and IPv6 reachability (TCP to Cloudflare/Google/Quad9 anycast), "IPv6 configured but broken" detection, public IPs, NAT/CGNAT/double-NAT hints, clock skew, TLS interception |
 | **OS resolver path** | What apps actually experience: lookups through `getaddrinfo`/Windows DNS Client/mDNSResponder, hosts file, search domains, NXDOMAIN rewriting, IPv6-only names, dual-stack (Happy Eyeballs) reachability |
 | **Every configured resolver** (system, stub, gateway, custom) | UDP and TCP/53, A/AAAA, latency (median/p90/jitter/loss), uncached latency, EDNS0, truncation→TCP fallback, large-UDP/fragmentation drops, DNSSEC validation, NXDOMAIN integrity, ad/tracker filtering, server fingerprint (dnsmasq/Unbound/BIND…), upstream egress network |
+| **Protocol compliance & behaviour** | 0x20 case preservation, EDNS version negotiation (BADVERS), DNS Cookies, modern record types (HTTPS/SVCB), 20-query burst / rate limiting, answer caching, DNS-rebinding protection |
+| **Network signals** | DDR (`_dns.resolver.arpa`, the encrypted-DNS discovery Windows 11/Apple use), Firefox DoH canary (`use-application-dns.net`), iCloud Private Relay canary (`mask.icloud.com`), open DoT/DoH ports on local resolvers |
+| **Network health** | Ping loss/latency/jitter to the gateway (Wi-Fi/LAN quality) and the internet, path MTU discovery (PPPoE/VPN/tunnel detection), NTP reachability and clock offset, captive-portal / HTTP-proxy detection with the Google/Apple/Microsoft connectivity probes, NAT64/DNS64, local hostname/PTR lookups, WPAD exposure |
 | **Public resolvers** | Cloudflare, Google, Quad9, OpenDNS, AdGuard and Control D, on primary and secondary addresses over IPv4 and IPv6, plus DNS-over-TLS (853) and DNS-over-HTTPS (443) |
 | **Failover** | Redundancy (single resolver, same-host duplicates), dead primaries, mixed local+public resolvers (filtering bypass, broken local names), the OS failover model and worst-case delay |
 | **Interception** | Queries to never-routed documentation addresses (any reply = transparent DNS redirect), egress-ASN verification that "8.8.8.8" is really Google, tampered answers from public resolvers |
@@ -37,7 +44,7 @@ Each finding comes with **evidence** (the exact test results behind it) and a **
    - **Windows:** double-click. If SmartScreen says "Windows protected your PC", click *More info → Run anyway*. The binaries are not code-signed yet.
    - **macOS:** `chmod +x sadns-darwin-arm64 && xattr -d com.apple.quarantine sadns-darwin-arm64 && ./sadns-darwin-arm64`
    - **Linux:** `chmod +x sadns-linux-amd64 && ./sadns-linux-amd64`
-3. Click **Run diagnostics**. A full scan takes about 20–60 s, mostly traceroutes.
+3. Click **Run diagnostics**. A full scan takes about 30–90 s (traceroutes, ping series and path-MTU probing run alongside the DNS tests).
 4. Click **Copy report for AI** and paste it into ChatGPT, Claude, Gemini, etc. The report starts with instructions for the AI.
 
 No admin/root rights are needed.

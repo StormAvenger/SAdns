@@ -32,6 +32,8 @@ func Run(r *model.Report) {
 	a.system()
 	a.interception()
 	a.public()
+	a.resolverExtras()
+	a.netHealth()
 	a.routing()
 
 	rank := map[string]int{model.Fail: 0, model.Warn: 1, model.Info: 2, model.Pass: 3}
@@ -391,13 +393,6 @@ func (a *az) system() {
 			a.add(model.Info, "dns", "GW-DNS", "Default gateway "+g.Addr+" also answers DNS but is not configured on this host", fmt.Sprintf("The router runs a DNS forwarder (median %.1f ms) that this device does not use.", g.Latency.MedianMS), "If you want clients to use the router's DNS (local hostnames, filtering), hand out its address via DHCP.", resEv(g, "udp_a")...)
 		}
 	}
-}
-
-func nonEmpty(a, b string) string {
-	if a != "" {
-		return a
-	}
-	return b
 }
 
 // resolverQuality applies per-resolver protocol checks.

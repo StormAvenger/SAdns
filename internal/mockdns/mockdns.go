@@ -10,30 +10,42 @@ import (
 	"net/netip"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/StormAvenger/SAdns/internal/dnswire"
 )
 
 // Behavior selects how the server misbehaves.
 type Behavior struct {
-	Validating   bool   // DNSSEC-validating (SERVFAIL for dnssec-failed.org, AD for ietf.org)
-	HijackNX     bool   // answer NXDOMAIN names with an address
-	Filtering    bool   // sinkhole ad domains to 0.0.0.0
-	NoTCP        bool   // do not listen on TCP
-	DropLargeUDP bool   // silently drop UDP responses > 512 bytes
-	NoEDNS       bool   // strip OPT records from responses
-	Version      string // CHAOS version.bind
-	Egress       string // IP returned by o-o.myaddr.l.google.com
-	ASN          string // ASN returned for origin lookups
+	Validating    bool   // DNSSEC-validating (SERVFAIL for dnssec-failed.org, AD for ietf.org)
+	HijackNX      bool   // answer NXDOMAIN names with an address
+	Filtering     bool   // sinkhole ad domains to 0.0.0.0
+	NoTCP         bool   // do not listen on TCP
+	DropLargeUDP  bool   // silently drop UDP responses > 512 bytes
+	NoEDNS        bool   // strip OPT records from responses
+	Version       string // CHAOS version.bind
+	BadHTTPS      bool   // FORMERR on HTTPS/SVCB queries (old middlebox)
+	RebindProtect bool   // empty answer for names resolving to private IPs
+	Canaries      bool   // NXDOMAIN for DoH/Private Relay canary domains
+	DDR           bool   // advertise DoH via _dns.resolver.arpa SVCB
+	Lowercase     bool   // lowercase the echoed question (breaks 0x20)
+	Caching       bool   // decrementing TTLs (looks like a cache)
+	RateLimit     int    // drop UDP queries beyond N per 100 ms window (0 = off)
+	Egress        string // IP returned by o-o.myaddr.l.google.com
+	ASN           string // ASN returned for origin lookups
 }
 
 // Server is a running mock resolver.
 type Server struct {
-	Addr string
-	B    Behavior
-	pc   net.PacketConn
-	ln   net.Listener
-	wg   sync.WaitGroup
+	Addr  string
+	B     Behavior
+	start time.Time
+	mu    sync.Mutex
+	win   time.Time
+	count int
+	pc    net.PacketConn
+	ln    net.Listener
+	wg    sync.WaitGroup
 }
 
 // Start launches a server on 127.0.0.1 with a random port (same port for UDP+TCP).
@@ -43,7 +55,7 @@ func Start(b Behavior) (*Server, error) {
 		if err != nil {
 			return nil, err
 		}
-		s := &Server{B: b, pc: pc, Addr: pc.LocalAddr().String()}
+		s := &Server{B: b, pc: pc, Addr: pc.LocalAddr().String(), start: time.Now()}
 		if !b.NoTCP {
 			ln, err := net.Listen("tcp", s.Addr)
 			if err != nil {
@@ -80,6 +92,9 @@ func (s *Server) serveUDP() {
 		}
 		q, err := dnswire.Unpack(buf[:n])
 		if err != nil || len(q.Question) == 0 {
+			continue
+		}
+		if s.B.RateLimit > 0 && s.limited() {
 			continue
 		}
 		resp := s.answer(q)
@@ -132,23 +147,50 @@ func (s *Server) serveTCP() {
 	}
 }
 
+func (s *Server) limited() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if time.Since(s.win) > 100*time.Millisecond {
+		s.win, s.count = time.Now(), 0
+	}
+	s.count++
+	return s.count > s.B.RateLimit
+}
+
 func a4(s string) []byte  { a := netip.MustParseAddr(s).As4(); return a[:] }
 func a16(s string) []byte { a := netip.MustParseAddr(s).As16(); return a[:] }
 
 func (s *Server) answer(q *dnswire.Msg) *dnswire.Msg {
 	qq := q.Question[0]
 	name := strings.ToLower(strings.TrimSuffix(qq.Name, "."))
-	r := &dnswire.Msg{Header: dnswire.Header{ID: q.ID, QR: true, RD: q.RD, RA: true}, Question: q.Question}
+	question := append([]dnswire.Question(nil), q.Question...)
+	if s.B.Lowercase {
+		question[0].Name = strings.ToLower(question[0].Name)
+	}
+	r := &dnswire.Msg{Header: dnswire.Header{ID: q.ID, QR: true, RD: q.RD, RA: true}, Question: question}
 	if q.EDNS != nil && !s.B.NoEDNS {
 		r.EDNS = &dnswire.EDNS{UDPSize: 1232, DO: q.EDNS.DO}
+		if q.EDNS.Version > 0 {
+			r.Rcode = dnswire.RcodeBadVers
+			return r
+		}
 		for _, o := range q.EDNS.Options {
-			if o.Code == dnswire.OptNSID {
+			switch o.Code {
+			case dnswire.OptNSID:
 				r.EDNS.Options = append(r.EDNS.Options, dnswire.EDNSOption{Code: dnswire.OptNSID, Data: []byte("mock-1")})
+			case dnswire.OptCookie:
+				if len(o.Data) >= 8 {
+					r.EDNS.Options = append(r.EDNS.Options, dnswire.EDNSOption{Code: dnswire.OptCookie, Data: append(append([]byte(nil), o.Data[:8]...), dnswire.RandomBytes(16)...)})
+				}
 			}
 		}
 	}
+	ttl := uint32(300)
+	if s.B.Caching {
+		ttl -= uint32(time.Since(s.start).Seconds())
+	}
 	rr := func(t uint16, data []byte) dnswire.RR {
-		return dnswire.RR{Name: qq.Name, Type: t, Class: qq.Class, TTL: 300, Data: data}
+		return dnswire.RR{Name: qq.Name, Type: t, Class: qq.Class, TTL: ttl, Data: data}
 	}
 	nx := func() { r.Rcode = dnswire.RcodeNXDomain }
 
@@ -160,7 +202,31 @@ func (s *Server) answer(q *dnswire.Msg) *dnswire.Msg {
 		}
 		return r
 	}
+	if qq.Type == dnswire.TypeHTTPS || qq.Type == dnswire.TypeSVCB {
+		switch {
+		case s.B.BadHTTPS:
+			r.Rcode = dnswire.RcodeFormErr
+		case name == "_dns.resolver.arpa" && s.B.DDR:
+			data := append([]byte{0, 1}, dnswire.EncodeName("dns.google.")...)
+			r.Answer = append(r.Answer, rr(qq.Type, data))
+		}
+		return r
+	}
+	if ip, ok := strings.CutSuffix(name, ".nip.io"); ok && qq.Type == dnswire.TypeA {
+		if a, err := netip.ParseAddr(ip); err == nil && a.Is4() {
+			if !(s.B.RebindProtect && a.IsPrivate()) {
+				r.Answer = append(r.Answer, rr(dnswire.TypeA, a4(ip)))
+			}
+			return r
+		}
+	}
 	switch {
+	case name == "use-application-dns.net" || name == "mask.icloud.com" || name == "mask-h2.icloud.com":
+		if s.B.Canaries {
+			nx()
+		} else if qq.Type == dnswire.TypeA {
+			r.Answer = append(r.Answer, rr(dnswire.TypeA, a4("17.248.1.1")))
+		}
 	case name == "example.com" && qq.Type == dnswire.TypeA:
 		r.Answer = append(r.Answer, rr(dnswire.TypeA, a4("93.184.215.14")))
 	case name == "example.com" && qq.Type == dnswire.TypeAAAA:
