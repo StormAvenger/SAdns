@@ -25,3 +25,4 @@ Ground rules:
 - Untrusted input (DNS, NTP, HTTP, command output) must be bounds-checked and must never panic.
 - UI: build DOM with `h()`/text nodes only (never `innerHTML`), no inline `style=""` attributes or new `<script>`/`<style>` blocks (the CSP pins their hashes).
 - Run `gofmt` and `go vet`; CI also runs staticcheck and govulncheck.
+- Changelog entries, PR descriptions and issue status replies start with the short header in [docs/UPDATE-POSTS.md](docs/UPDATE-POSTS.md).

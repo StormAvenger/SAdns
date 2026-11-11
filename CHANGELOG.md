@@ -2,6 +2,8 @@
 
 All notable changes to SAdns. Versions follow [Semantic Versioning](https://semver.org/); until 1.0 any release may change report formats.
 
+Each version starts with the short header described in [docs/UPDATE-POSTS.md](docs/UPDATE-POSTS.md).
+
 ## v0.1.0 — 2026-11-11
 
 First public pre-release.
