@@ -1,0 +1,7 @@
+/dist/
+/sadns
+/sadns.exe
+sadns-report-*.md
+sadns-report-*.json
+internal/dnswire/testdata/fuzz/
+.DS_Store

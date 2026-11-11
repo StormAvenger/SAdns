@@ -1,0 +1,258 @@
+// Command SAdns is a full-scope DNS and network diagnostic tool.
+//
+//	SAdns            launch the browser UI (or run in the terminal if no desktop is available)
+//	sadns ui         launch the browser UI
+//	sadns run        run in the terminal and write report files
+package main
+
+import (
+	"bufio"
+	"context"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/StormAvenger/SAdns/internal/analyze"
+	"github.com/StormAvenger/SAdns/internal/model"
+	"github.com/StormAvenger/SAdns/internal/probe"
+	"github.com/StormAvenger/SAdns/internal/web"
+)
+
+// Set by -ldflags at release time.
+var (
+	version = "dev"
+	commit  = "none"
+	built   = "unknown"
+)
+
+const repo = "https://github.com/StormAvenger/SAdns"
+
+type listFlag []string
+
+func (l *listFlag) String() string { return strings.Join(*l, ",") }
+func (l *listFlag) Set(s string) error {
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			*l = append(*l, p)
+		}
+	}
+	return nil
+}
+
+func main() {
+	os.Exit(realMain(os.Args[1:]))
+}
+
+func realMain(args []string) int {
+	mode := "auto"
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		mode, args = args[0], args[1:]
+	}
+	switch mode {
+	case "auto", "ui", "run":
+	case "version":
+		fmt.Printf("SAdns %s (commit %s, built %s, %s/%s)\n", version, commit, built, runtime.GOOS, runtime.GOARCH)
+		return 0
+	case "help":
+		args = []string{"-h"}
+		mode = "auto"
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command %q (use: ui, run, version, help)\n", mode)
+		return 2
+	}
+
+	def := probe.DefaultConfig()
+	fs := flag.NewFlagSet("SAdns", flag.ContinueOnError)
+	var (
+		quick      = fs.Bool("quick", false, "quick scan: primary address per provider, 3 samples, no traceroute")
+		samples    = fs.Int("samples", def.Samples, "latency samples per resolver")
+		timeout    = fs.Duration("timeout", def.Timeout, "per-query timeout")
+		noTrace    = fs.Bool("no-traceroute", false, "skip traceroutes")
+		noEnc      = fs.Bool("no-encrypted", false, "skip DNS-over-TLS / DNS-over-HTTPS tests")
+		only4      = fs.Bool("4", false, "IPv4 only")
+		only6      = fs.Bool("6", false, "IPv6 only")
+		outDir     = fs.String("out", ".", "directory for report files (run mode)")
+		redact     = fs.Bool("redact", false, "mask public IPs, IPv6 prefixes, hostname and MACs in report files")
+		stdoutFmt  = fs.String("stdout", "", "print the report to stdout instead of writing files: md or json (run mode)")
+		listen     = fs.String("listen", "127.0.0.1:0", "UI listen address (loopback only)")
+		noBrowser  = fs.Bool("no-browser", false, "UI mode: print the URL instead of opening a browser")
+		concurrent = fs.Int("concurrency", def.Concurrency, "resolvers tested in parallel")
+		providers  listFlag
+		extra      listFlag
+	)
+	fs.Var(&providers, "providers", "public providers to test, comma-separated ("+strings.Join(probe.ProviderKeys(), ",")+"); default all; 'none' to skip")
+	fs.Var(&extra, "resolver", "extra resolver to test (ip or ip:port); repeatable or comma-separated")
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "SAdns %s — full-scope DNS & network diagnostics\n\n", version)
+		fmt.Fprintf(fs.Output(), "Usage:\n  sadns [ui|run] [flags]\n\n  (no command)  open the browser UI; falls back to 'run' when no desktop is available\n  ui            open the browser UI\n  run           run in the terminal and write report .md/.json files\n  version       print version\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 2
+	}
+
+	cfg := def
+	cfg.Quick = *quick
+	cfg.Samples = *samples
+	if *quick && !flagSet(fs, "samples") {
+		cfg.Samples = 3
+	}
+	cfg.Timeout = *timeout
+	cfg.Traceroute = !*noTrace && !*quick
+	if flagSet(fs, "no-traceroute") {
+		cfg.Traceroute = !*noTrace
+	}
+	cfg.Encrypted = !*noEnc
+	cfg.Concurrency = *concurrent
+	cfg.Extra = extra
+	if *only4 || *only6 {
+		cfg.IPv4, cfg.IPv6 = *only4, *only6
+	}
+	if len(providers) == 1 && providers[0] == "none" {
+		cfg.Providers = []string{"__none__"}
+	} else {
+		for _, p := range providers {
+			if probe.ProviderByKey(p) == nil {
+				fmt.Fprintf(os.Stderr, "unknown provider %q (known: %s)\n", p, strings.Join(probe.ProviderKeys(), ", "))
+				return 2
+			}
+		}
+		cfg.Providers = providers
+	}
+
+	tool := model.ToolInfo{Name: "SAdns", Version: version, Commit: commit, Built: built, Repo: repo}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	if mode == "auto" {
+		if hasDesktop() {
+			mode = "ui"
+		} else {
+			mode = "run"
+			fmt.Fprintln(os.Stderr, "No desktop session detected — running in terminal mode (use 'sadns ui' to force the browser UI).")
+		}
+	}
+
+	if mode == "ui" {
+		fmt.Printf("SAdns %s — DNS & network diagnostics\n\n", version)
+		err := web.Serve(ctx, web.Options{
+			Listen: *listen, OpenBrowser: !*noBrowser, Defaults: cfg, Tool: tool,
+			Logf: func(f string, a ...any) { fmt.Printf(f+"\n", a...) },
+		})
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "error:", err)
+			pauseIfDoubleClicked()
+			return 1
+		}
+		return 0
+	}
+
+	return runCLI(ctx, cfg, tool, *outDir, *redact, *stdoutFmt)
+}
+
+func flagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
+}
+
+func runCLI(ctx context.Context, cfg probe.Config, tool model.ToolInfo, outDir string, redact bool, stdoutFmt string) int {
+	quiet := stdoutFmt != ""
+	logf := func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }
+	if !quiet {
+		logf("SAdns %s — full-scope DNS & network diagnostics", tool.Version)
+	}
+	eng := probe.New(cfg, func(ev probe.Event) {
+		switch ev.Type {
+		case "phase":
+			logf("[%3.0f%%] %s", ev.Progress*100, ev.Message)
+		case "log":
+			logf("       %s", ev.Message)
+		case "resolver":
+			if ev.Resolver != nil {
+				r := ev.Resolver
+				st := "unreachable"
+				if r.Reachable {
+					st = fmt.Sprintf("ok  median %.1f ms  dnssec=%s", r.Latency.MedianMS, r.DNSSEC)
+				} else if len(r.Tests) > 0 && r.Tests[0].Status == model.Skip {
+					st = "skipped"
+				}
+				logf("       %-38s %-28s %s", r.Label, r.Addr, st)
+			}
+		}
+	})
+	rep := eng.Run(ctx)
+	rep.Tool = tool
+	analyze.Run(rep)
+
+	switch stdoutFmt {
+	case "md", "markdown":
+		os.Stdout.Write(web.Render(rep, redact, "md"))
+		return 0
+	case "json":
+		os.Stdout.Write(web.Render(rep, redact, "json"))
+		return 0
+	case "":
+	default:
+		logf("unknown --stdout format %q (md or json)", stdoutFmt)
+		return 2
+	}
+
+	s := rep.Summary
+	logf("")
+	logf("Result: %s — %s", strings.ToUpper(s.Verdict), s.Headline)
+	logf("        %d fail · %d warn · %d info · %d pass   (%.1f s)", s.Fail, s.Warn, s.Info, s.Pass, rep.DurationSec)
+	for _, f := range rep.Findings {
+		if f.Severity == model.Fail || f.Severity == model.Warn {
+			logf("  [%s] %s", strings.ToUpper(f.Severity), f.Title)
+		}
+	}
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		logf("cannot create %s: %v", outDir, err)
+		return 1
+	}
+	base := filepath.Join(outDir, web.FileBase(rep))
+	for _, ext := range []string{"md", "json"} {
+		p := base + "." + ext
+		if err := os.WriteFile(p, web.Render(rep, redact, ext), 0o644); err != nil {
+			logf("write %s: %v", p, err)
+			return 1
+		}
+		abs, _ := filepath.Abs(p)
+		logf("Wrote %s", abs)
+	}
+	logf("\nPaste the .md file into your AI assistant for a diagnosis.")
+	pauseIfDoubleClicked()
+	return 0
+}
+
+// hasDesktop guesses whether a browser can be opened.
+func hasDesktop() bool {
+	switch runtime.GOOS {
+	case "windows", "darwin":
+		return true
+	}
+	return os.Getenv("DISPLAY") != "" || os.Getenv("WAYLAND_DISPLAY") != ""
+}
+
+// pauseIfDoubleClicked keeps the console open on Windows when launched from Explorer.
+func pauseIfDoubleClicked() {
+	if runtime.GOOS != "windows" || len(os.Args) > 1 {
+		return
+	}
+	fmt.Fprint(os.Stderr, "\nPress Enter to close…")
+	_ = time.AfterFunc(10*time.Minute, func() { os.Exit(0) })
+	bufio.NewReader(os.Stdin).ReadString('\n')
+}

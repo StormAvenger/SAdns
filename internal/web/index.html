@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAdns — DNS & network diagnostics</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='none' stroke='%2333d1c4' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='4' fill='%2333d1c4'/%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0a0e13;--panel:#111821;--panel2:#16202b;--line:#223041;--text:#dbe4ee;--muted:#8193a6;--dim:#5b6b7c;
+  --accent:#33d1c4;--accent2:#1f9e95;--fail:#ff5f5f;--warn:#ffb547;--info:#6cb6ff;--pass:#3ddc97;--skip:#5b6b7c;
+  --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,Inter,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--sans)}
+body{background-image:radial-gradient(circle at 15% -10%,rgba(51,209,196,.10),transparent 40%),radial-gradient(circle at 110% 10%,rgba(108,182,255,.07),transparent 35%)}
+a{color:var(--accent)}
+code,.mono{font-family:var(--mono);font-size:12.5px}
+header{display:flex;align-items:center;gap:14px;padding:18px 28px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(10,14,19,.88);backdrop-filter:blur(8px);z-index:10}
+.logo{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-weight:700;font-size:18px;letter-spacing:.5px}
+.logo svg{width:26px;height:26px}
+.ver{color:var(--dim);font-family:var(--mono);font-size:12px}
+header .spacer{flex:1}
+.host{color:var(--muted);font-family:var(--mono);font-size:12px}
+main{max-width:1280px;margin:0 auto;padding:28px}
+.btn{appearance:none;border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:9px 14px;border-radius:8px;font:600 13px var(--sans);cursor:pointer;display:inline-flex;align-items:center;gap:8px;transition:.15s}
+.btn:hover{border-color:var(--accent2);background:#1a2733}
+.btn.primary{background:linear-gradient(180deg,#36d6c9,#1fa79d);color:#04211f;border-color:transparent}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.big{padding:14px 26px;font-size:15px;border-radius:10px}
+.btn.ghost{background:transparent}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}
+.hero{display:grid;grid-template-columns:1.2fr 1fr;gap:24px;align-items:start}
+.hero h1{font-size:30px;line-height:1.15;margin:4px 0 10px;letter-spacing:-.5px}
+.hero p{color:var(--muted);margin:0 0 18px;max-width:58ch}
+.checks{display:grid;grid-template-columns:1fr 1fr;gap:6px 18px;margin:18px 0 0;padding:0;list-style:none;color:var(--muted);font-size:13px}
+.checks li::before{content:"▸ ";color:var(--accent)}
+.opt h3{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.seg{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:3px;margin-bottom:16px}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted);padding:8px;border-radius:7px;font:600 13px var(--sans);cursor:pointer}
+.seg button.on{background:var(--panel2);color:var(--text);box-shadow:inset 0 0 0 1px var(--line)}
+.field{margin:12px 0}
+.field label.t{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:12.5px;cursor:pointer;user-select:none;color:var(--muted)}
+.chip input{display:none}
+.chip.on{border-color:var(--accent2);color:var(--text);background:rgba(51,209,196,.08)}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.toggle{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);cursor:pointer}
+.toggle input{accent-color:var(--accent)}
+input[type=text],input[type=number]{background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px;font:13px var(--mono);width:100%}
+.hidden{display:none!important}
+/* progress */
+.prog{height:8px;background:var(--bg);border-radius:99px;overflow:hidden;border:1px solid var(--line)}
+.prog>div{height:100%;width:0;background:linear-gradient(90deg,var(--accent2),var(--accent));transition:width .4s}
+.phases{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin:18px 0}
+.phase{font-size:12px;color:var(--dim);border-top:2px solid var(--line);padding-top:8px}
+.phase.active{color:var(--text);border-color:var(--accent)}
+.phase.done{color:var(--muted);border-color:var(--accent2)}
+.log{font-family:var(--mono);font-size:12px;color:var(--muted);height:150px;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px;white-space:pre-wrap}
+/* verdict */
+.verdict{display:flex;align-items:center;gap:22px;padding:22px 24px;border-radius:14px;border:1px solid var(--line);background:var(--panel)}
+.verdict .ring{width:64px;height:64px;border-radius:50%;display:grid;place-items:center;font-size:28px;flex:none}
+.v-healthy .ring{background:rgba(61,220,151,.12);box-shadow:inset 0 0 0 2px var(--pass)}
+.v-degraded .ring{background:rgba(255,181,71,.12);box-shadow:inset 0 0 0 2px var(--warn)}
+.v-problems .ring{background:rgba(255,95,95,.12);box-shadow:inset 0 0 0 2px var(--fail)}
+.verdict h2{margin:0;font-size:22px}
+.verdict p{margin:4px 0 0;color:var(--muted)}
+.counts{display:flex;gap:8px;margin-left:auto}
+.count{min-width:72px;text-align:center;padding:8px 10px;border-radius:10px;background:var(--bg);border:1px solid var(--line);cursor:pointer}
+.count b{display:block;font-size:20px;font-family:var(--mono)}
+.count span{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.count.f b{color:var(--fail)}.count.w b{color:var(--warn)}.count.i b{color:var(--info)}.count.p b{color:var(--pass)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:16px 0 22px}
+.actions .sep{flex:1}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:18px;overflow-x:auto}
+.tab{background:none;border:0;color:var(--muted);padding:10px 14px;font:600 13px var(--sans);cursor:pointer;border-bottom:2px solid transparent;white-space:nowrap}
+.tab.on{color:var(--text);border-color:var(--accent)}
+/* findings */
+.finding{border:1px solid var(--line);border-left-width:4px;border-radius:10px;background:var(--panel);margin-bottom:10px}
+.finding.fail{border-left-color:var(--fail)}.finding.warn{border-left-color:var(--warn)}.finding.info{border-left-color:var(--info)}.finding.pass{border-left-color:var(--pass)}
+.finding summary{list-style:none;cursor:pointer;padding:12px 16px;display:flex;gap:12px;align-items:center}
+.finding summary::-webkit-details-marker{display:none}
+.sev{font:700 10.5px var(--mono);letter-spacing:1px;padding:3px 7px;border-radius:5px;flex:none}
+.sev.fail{background:rgba(255,95,95,.15);color:var(--fail)}.sev.warn{background:rgba(255,181,71,.15);color:var(--warn)}
+.sev.info{background:rgba(108,182,255,.15);color:var(--info)}.sev.pass{background:rgba(61,220,151,.15);color:var(--pass)}.sev.skip{background:rgba(91,107,124,.2);color:var(--skip)}
+.finding .title{font-weight:600;flex:1}
+.finding .fid{color:var(--dim);font-family:var(--mono);font-size:11.5px}
+.finding .body{padding:0 16px 14px 16px;color:var(--muted)}
+.finding .body p{margin:6px 0}
+.finding ul{margin:6px 0;padding-left:18px;font-family:var(--mono);font-size:12px;color:var(--text)}
+.fix{margin-top:10px;padding:10px 12px;border-radius:8px;background:rgba(51,209,196,.07);border:1px solid rgba(51,209,196,.25);color:var(--text)}
+.fix b{color:var(--accent)}
+.filters{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:10px;margin-bottom:18px}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{background:var(--panel2);color:var(--muted);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;position:sticky;top:0}
+tr:last-child td{border-bottom:0}
+td.mono{white-space:nowrap}
+tr.clickable{cursor:pointer}
+tr.clickable:hover td{background:#141e29}
+tr.detail td{background:var(--bg);padding:12px}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%}
+.dot.pass{background:var(--pass)}.dot.warn{background:var(--warn)}.dot.fail{background:var(--fail)}.dot.info{background:var(--info)}.dot.skip{background:var(--skip)}
+.tag{display:inline-block;padding:1px 7px;border-radius:5px;font:600 11px var(--mono);background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
+.tag.good{color:var(--pass);border-color:rgba(61,220,151,.35)}.tag.bad{color:var(--fail);border-color:rgba(255,95,95,.35)}.tag.meh{color:var(--warn);border-color:rgba(255,181,71,.35)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.card h4{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:13px}
+.kv div:nth-child(odd){color:var(--muted)}
+.kv div:nth-child(even){font-family:var(--mono);font-size:12.5px;word-break:break-all}
+h3.sec{font-size:13px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin:22px 0 10px}
+pre.raw{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px;font:12px/1.45 var(--mono);color:var(--text);white-space:pre-wrap;word-break:break-word;max-height:70vh;overflow:auto}
+.hop{font-family:var(--mono);font-size:12px}
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--accent2);padding:10px 16px;border-radius:10px;opacity:0;transition:.25s;pointer-events:none;z-index:50}
+.toast.show{opacity:1}
+.small{font-size:12px;color:var(--dim)}
+footer{color:var(--dim);font-size:12px;text-align:center;padding:30px}
+@media (max-width:900px){.hero,.grid2{grid-template-columns:1fr}.phases{grid-template-columns:repeat(4,1fr)}.verdict{flex-wrap:wrap}.counts{margin-left:0}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 32 32"><circle cx="16" cy="16" r="13" fill="none" stroke="#33d1c4" stroke-width="2.5"/><circle cx="16" cy="16" r="7" fill="none" stroke="#33d1c4" stroke-width="1.5" opacity=".5"/><circle cx="16" cy="16" r="3" fill="#33d1c4"/><path d="M16 3v6M16 23v6M3 16h6M23 16h6" stroke="#33d1c4" stroke-width="1.5" opacity=".6"/></svg>
+    SAdns
+  </div>
+  <span class="ver" id="ver"></span>
+  <span class="spacer"></span>
+  <span class="host" id="host"></span>
+  <button class="btn ghost" id="quit" title="Stop the SAdns program">Quit</button>
+</header>
+
+<main>
+  <!-- START -->
+  <section id="v-start" class="hero">
+    <div>
+      <h1>Full-scope DNS &amp; network diagnostics</h1>
+      <p>Tests your OS DNS configuration, your router/local resolver and the major public resolvers over IPv4 and IPv6. It also checks failover, DNSSEC, encrypted DNS, interception and routing. The result is a technical report ready to hand to an AI assistant or a network engineer.</p>
+      <button class="btn primary big" id="run">▶ Run diagnostics</button>
+      <ul class="checks">
+        <li>IPv4 / IPv6 connectivity</li><li>OS resolver path &amp; failover</li>
+        <li>Router / local DNS health</li><li>Cloudflare · Google · Quad9 · OpenDNS …</li>
+        <li>UDP · TCP · DoT · DoH</li><li>DNSSEC validation</li>
+        <li>NXDOMAIN hijacking</li><li>Transparent DNS interception</li>
+        <li>Large-packet / fragmentation</li><li>Routing &amp; traceroute</li>
+      </ul>
+    </div>
+    <div class="panel opt">
+      <h3>Scan options</h3>
+      <div class="seg" id="mode"><button data-v="full" class="on">Full scope</button><button data-v="quick">Quick</button></div>
+      <div class="field"><label class="t">Public resolvers</label><div class="chips" id="provs"></div></div>
+      <div class="field row">
+        <label class="toggle"><input type="checkbox" id="o-v4" checked> IPv4</label>
+        <label class="toggle"><input type="checkbox" id="o-v6" checked> IPv6</label>
+        <label class="toggle"><input type="checkbox" id="o-enc" checked> DoT / DoH</label>
+        <label class="toggle"><input type="checkbox" id="o-tr" checked> Traceroute</label>
+      </div>
+      <div class="field row">
+        <div style="flex:1"><label class="t">Latency samples</label><input type="number" id="o-samples" min="1" max="50" value="5"></div>
+        <div style="flex:1"><label class="t">Query timeout (ms)</label><input type="number" id="o-timeout" min="200" max="15000" value="2000"></div>
+      </div>
+      <div class="field"><label class="t">Extra resolvers to test (comma-separated, e.g. 192.168.1.2, 10.0.0.53:5353)</label><input type="text" id="o-extra" placeholder="Pi-hole, AdGuard Home, secondary router…"></div>
+      <p class="small">Runs locally on this computer. Nothing is uploaded anywhere. The only traffic is the DNS/HTTPS test queries themselves.</p>
+    </div>
+  </section>
+
+  <!-- RUNNING -->
+  <section id="v-run" class="panel hidden">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <strong id="run-msg">Starting…</strong><span class="spacer" style="flex:1"></span><span class="mono" id="run-pct">0%</span>
+    </div>
+    <div class="prog"><div id="bar"></div></div>
+    <div class="phases" id="phases"></div>
+    <div class="tw" style="max-height:340px;overflow:auto"><table><thead><tr><th>Resolver</th><th>Address</th><th>Reach</th><th>Median</th><th>DNSSEC</th><th>Filter</th></tr></thead><tbody id="live"></tbody></table></div>
+    <div class="log" id="log"></div>
+  </section>
+
+  <!-- RESULTS -->
+  <section id="v-res" class="hidden">
+    <div class="verdict" id="verdict"></div>
+    <div class="actions">
+      <button class="btn primary" id="copy-ai">⧉ Copy report for AI</button>
+      <button class="btn" id="dl-md">↓ Markdown</button>
+      <button class="btn" id="dl-json">↓ JSON</button>
+      <label class="toggle" title="Replace public IPs, IPv6 prefixes, hostname and MAC addresses with placeholders"><input type="checkbox" id="redact"> Redact personal info</label>
+      <span class="sep"></span>
+      <button class="btn" id="again">↻ New scan</button>
+    </div>
+    <div class="tabs" id="tabs">
+      <button class="tab on" data-t="findings">Findings</button>
+      <button class="tab" data-t="resolvers">Resolvers</button>
+      <button class="tab" data-t="conn">Connectivity &amp; IPv6</button>
+      <button class="tab" data-t="system">System config</button>
+      <button class="tab" data-t="routing">Routing &amp; interception</button>
+      <button class="tab" data-t="report">AI report</button>
+    </div>
+    <div id="t-findings"></div>
+    <div id="t-resolvers" class="hidden"></div>
+    <div id="t-conn" class="hidden"></div>
+    <div id="t-system" class="hidden"></div>
+    <div id="t-routing" class="hidden"></div>
+    <div id="t-report" class="hidden"></div>
+  </section>
+</main>
+<footer>SAdns is open source — <span id="repo"></span></footer>
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const TOKEN = new URLSearchParams(location.search).get("token") || "";
+const $ = (id) => document.getElementById(id);
+// h(): build DOM safely — every string becomes a text node (never innerHTML).
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  if (attrs) for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid == null || kid === false) continue;
+    el.appendChild(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+// fill(): replace an element's children, flattening arrays and skipping nulls.
+function fill(el, ...kids) { el.replaceChildren(); for (const k of kids.flat(Infinity)) { if (k == null || k === false) continue; el.appendChild(k instanceof Node ? k : document.createTextNode(String(k))); } }
+const api = (path, opts = {}) => fetch(path + (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN),
+  { ...opts, headers: { ...(opts.headers || {}), "X-SAdns-Token": TOKEN } });
+function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2200); }
+const fmtMs = (v) => v == null || v === 0 ? "—" : (v < 10 ? v.toFixed(1) : Math.round(v)) + " ms";
+const sevLabel = { fail: "FAIL", warn: "WARN", info: "INFO", pass: "PASS", skip: "SKIP" };
+const dot = (s) => h("span", { class: "dot " + (s || "skip"), title: s || "n/a" });
+const tbl = (head, rows) => h("div", { class: "tw" }, h("table", null, h("thead", null, h("tr", null, head.map((x) => h("th", null, x)))), h("tbody", null, rows)));
+
+let info = null, report = null, mode = "full", es = null;
+const PHASES = [["system", "System"], ["connectivity", "Connectivity"], ["public-ip", "Public IP"], ["os-resolver", "OS resolver"], ["resolvers", "Resolvers"], ["interception", "Interception"], ["routing", "Routing"]];
+
+async function init() {
+  const r = await api("/api/info");
+  if (!r.ok) { document.body.textContent = "Access denied — open the link shown in the SAdns console."; return; }
+  info = await r.json();
+  $("ver").textContent = info.tool.version;
+  $("host").textContent = info.os + "/" + info.arch;
+  $("repo").appendChild(h("a", { href: info.tool.repo, target: "_blank", rel: "noopener" }, info.tool.repo));
+  const sel = new Set(info.defaults.providers && info.defaults.providers.length ? info.defaults.providers : info.providers.map((p) => p.key));
+  for (const p of info.providers) {
+    const cb = h("input", { type: "checkbox", value: p.key });
+    cb.checked = sel.has(p.key);
+    const chip = h("label", { class: "chip" + (cb.checked ? " on" : ""), title: (p.v4 || []).concat(p.v6 || []).join(", ") }, cb, p.name);
+    cb.addEventListener("change", () => chip.classList.toggle("on", cb.checked));
+    $("provs").appendChild(chip);
+  }
+  $("o-samples").value = info.defaults.samples || 5;
+  $("o-timeout").value = info.defaults.timeout_ms || 2000;
+  $("o-tr").checked = info.defaults.traceroute; $("o-enc").checked = info.defaults.encrypted;
+  fill($("phases"), ...PHASES.map(([k, n]) => h("div", { class: "phase", id: "ph-" + k }, n)));
+  if (info.running || info.has_report) { show("run"); listen(); }
+}
+
+document.querySelectorAll("#mode button").forEach((b) => b.addEventListener("click", () => {
+  mode = b.dataset.v;
+  document.querySelectorAll("#mode button").forEach((x) => x.classList.toggle("on", x === b));
+  $("o-samples").value = mode === "quick" ? 3 : 5;
+  $("o-tr").checked = mode !== "quick";
+}));
+
+function show(v) { for (const x of ["start", "run", "res"]) $("v-" + x).classList.toggle("hidden", x !== v); }
+
+$("run").addEventListener("click", async () => {
+  const body = {
+    quick: mode === "quick",
+    samples: +$("o-samples").value || 0,
+    timeout_ms: +$("o-timeout").value || 0,
+    providers: [...document.querySelectorAll("#provs input:checked")].map((c) => c.value),
+    extra: $("o-extra").value.split(/[\s,]+/).filter(Boolean),
+    traceroute: $("o-tr").checked, encrypted: $("o-enc").checked,
+    ipv4: $("o-v4").checked, ipv6: $("o-v6").checked,
+  };
+  const r = await api("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!r.ok) { toast(await r.text()); return; }
+  fill($("live"), ); $("log").textContent = "";
+  document.querySelectorAll(".phase").forEach((p) => p.className = "phase");
+  show("run"); listen();
+});
+
+function listen() {
+  if (es) es.close();
+  es = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN));
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    const pct = Math.round((ev.progress || 0) * 100);
+    $("bar").style.width = pct + "%"; $("run-pct").textContent = pct + "%";
+    if (ev.message) {
+      if (ev.type === "phase") $("run-msg").textContent = ev.message;
+      const log = $("log"); log.textContent += (ev.type === "phase" ? "▸ " : "  ") + ev.message + "\n"; log.scrollTop = log.scrollHeight;
+    }
+    if (ev.type === "phase") {
+      let seen = false;
+      for (const [k] of PHASES.slice().reverse()) {
+        const el = $("ph-" + k);
+        if (k === ev.phase) { el.className = "phase active"; seen = true; }
+        else if (seen) el.className = "phase done";
+      }
+    }
+    if (ev.type === "resolver" && ev.resolver) {
+      const r = ev.resolver;
+      $("live").appendChild(h("tr", null, h("td", null, r.label), h("td", { class: "mono" }, r.addr),
+        h("td", null, dot(r.reachable ? "pass" : (r.tests && r.tests[0] && r.tests[0].status === "skip" ? "skip" : "fail"))),
+        h("td", { class: "mono" }, fmtMs(r.latency && r.latency.median_ms)), h("td", null, r.dnssec), h("td", null, r.filtering)));
+    }
+    if (ev.type === "done" && ev.report) {
+      es.close(); es = null; report = ev.report;
+      document.querySelectorAll(".phase").forEach((p) => p.className = "phase done");
+      renderResults(); show("res");
+    }
+  };
+  es.onerror = () => { /* EventSource reconnects automatically */ };
+}
+
+$("again").addEventListener("click", () => show("start"));
+$("quit").addEventListener("click", async () => {
+  if (!confirm("Stop SAdns? The page will stop working.")) return;
+  await api("/api/quit", { method: "POST" }).catch(() => {});
+  fill(document.body, h("main", null, h("div", { class: "panel" }, h("h2", null, "SAdns has stopped."), h("p", { class: "small" }, "You can close this tab."))));
+});
+
+const rq = () => ($("redact").checked ? "&redact=1" : "");
+$("copy-ai").addEventListener("click", async () => {
+  const r = await api("/api/report.md?x=1" + rq());
+  const txt = await r.text();
+  try { await navigator.clipboard.writeText(txt); toast("Report copied — paste it into your AI assistant"); }
+  catch { selectTab("report"); toast("Clipboard blocked — select the text in the AI report tab"); }
+});
+function download(ext) {
+  const a = h("a", { href: "/api/report." + ext + "?download=1" + rq() + "&token=" + encodeURIComponent(TOKEN) });
+  document.body.appendChild(a); a.click(); a.remove();
+}
+$("dl-md").addEventListener("click", () => download("md"));
+$("dl-json").addEventListener("click", () => download("json"));
+$("redact").addEventListener("change", () => { if (!$("t-report").classList.contains("hidden")) renderReportTab(); });
+
+document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => selectTab(t.dataset.t)));
+function selectTab(name) {
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.dataset.t === name));
+  for (const k of ["findings", "resolvers", "conn", "system", "routing", "report"]) $("t-" + k).classList.toggle("hidden", k !== name);
+  if (name === "report") renderReportTab();
+}
+
+// ------------------------------------------------------------------ results
+function renderResults() {
+  const s = report.summary;
+  const icon = { healthy: "✓", degraded: "!", problems: "✕" }[s.verdict] || "?";
+  const title = { healthy: "Everything checks out", degraded: "Working, with issues", problems: "Problems found" }[s.verdict] || s.verdict;
+  const counts = [["f", "fail", s.fail], ["w", "warn", s.warn], ["i", "info", s.info], ["p", "pass", s.pass]];
+  $("verdict").className = "verdict v-" + s.verdict;
+  fill($("verdict"), 
+    h("div", { class: "ring" }, icon),
+    h("div", null, h("h2", null, title), h("p", null, s.headline), h("p", { class: "small" }, `Scan took ${report.duration_sec.toFixed(1)} s · ${report.resolvers.length} resolver addresses · ${new Date(report.started_at).toLocaleString()}`)),
+    h("div", { class: "counts" }, counts.map(([c, k, n]) => h("div", { class: "count " + c, onclick: () => { selectTab("findings"); filterFindings(k); } }, h("b", null, n), h("span", null, k)))));
+  renderFindings(); renderResolvers(); renderConn(); renderSystem(); renderRouting();
+  selectTab("findings");
+}
+
+let fFilter = "issues";
+function filterFindings(k) { fFilter = k; renderFindings(); }
+function renderFindings() {
+  const want = (f) => fFilter === "all" || (fFilter === "issues" ? f.severity !== "pass" : f.severity === fFilter);
+  const btn = (k, label) => h("button", { class: "btn" + (fFilter === k ? " primary" : ""), onclick: () => filterFindings(k) }, label);
+  const list = report.findings.filter(want);
+  fill($("t-findings"), 
+    h("div", { class: "filters" }, btn("issues", "Issues & notes"), btn("fail", "Fail"), btn("warn", "Warn"), btn("info", "Info"), btn("pass", "Passed checks"), btn("all", "All")),
+    list.length ? list.map((f) => h("details", { class: "finding " + f.severity, open: f.severity === "fail" || f.severity === "warn" },
+      h("summary", null, h("span", { class: "sev " + f.severity }, sevLabel[f.severity]), h("span", { class: "title" }, f.title), h("span", { class: "fid" }, f.id)),
+      h("div", { class: "body" },
+        f.detail && h("p", null, f.detail),
+        (f.evidence || []).length ? h("ul", null, f.evidence.map((e) => h("li", null, e))) : null,
+        f.recommendation && h("div", { class: "fix" }, h("b", null, "Fix: "), f.recommendation))))
+      : h("p", { class: "small" }, "Nothing in this category."));
+}
+
+const statusOf = (r, id) => { const t = (r.tests || []).find((x) => x.id === id); return t ? t.status : null; };
+function renderResolvers() {
+  const cols = [["udp_a", "UDP"], ["tcp", "TCP"], ["udp_aaaa", "AAAA"], ["edns", "EDNS"], ["tc_fallback", "TC→TCP"], ["edns_large", "Big UDP"], ["dot", "DoT"], ["doh", "DoH"]];
+  const rows = [];
+  for (const r of report.resolvers) {
+    const detail = h("tr", { class: "detail hidden" }, h("td", { colspan: 17 }, resolverDetail(r)));
+    const tag = (v, good, bad) => h("span", { class: "tag " + (v === good ? "good" : bad.includes(v) ? "bad" : "") }, v);
+    const eg = r.egress || {};
+    rows.push(h("tr", { class: "clickable", onclick: () => detail.classList.toggle("hidden") },
+      h("td", null, h("div", null, r.label), h("div", { class: "small" }, r.role + (r.software ? " · " + r.software.split(" (")[0] : ""))),
+      h("td", { class: "mono" }, r.addr),
+      cols.map(([id]) => h("td", null, statusOf(r, id) ? dot(statusOf(r, id)) : "")),
+      h("td", { class: "mono" }, fmtMs(r.latency && r.latency.median_ms)),
+      h("td", { class: "mono" }, fmtMs(r.uncached_ms)),
+      h("td", null, tag(r.dnssec, "validating", ["inconsistent"])),
+      h("td", null, tag(r.nxdomain, "correct", ["hijacked"])),
+      h("td", null, h("span", { class: "tag" }, r.filtering)),
+      h("td", { class: "mono" }, eg.asn ? h("span", { class: "tag " + (eg.matches_provider === "no" ? "bad" : eg.matches_provider === "yes" ? "good" : "") }, "AS" + eg.asn) : "")));
+    rows.push(detail);
+  }
+  fill($("t-resolvers"), 
+    h("p", { class: "small" }, "Click a row for every individual test, raw answers, Extended DNS Errors and identity data."),
+    tbl(["Resolver", "Address", ...cols.map((c) => c[1]), "Median", "Uncached", "DNSSEC", "NXDOMAIN", "Ad filter", "Egress"], rows));
+}
+function resolverDetail(r) {
+  const eg = r.egress || {}, l = r.latency || {};
+  const kv = [["Role / provider", r.role + " / " + r.provider], ["Interface / source", (r.interface || "—") + " / " + (r.local_addr || "—")], ["On local subnet", r.on_link ? "yes" : "no"],
+    ["Latency", l.received ? `min ${fmtMs(l.min_ms)} · median ${fmtMs(l.median_ms)} · p90 ${fmtMs(l.p90_ms)} · max ${fmtMs(l.max_ms)} · jitter ${fmtMs(l.jitter_ms)} · ${l.received}/${l.sent} answered` : "—"],
+    ["Egress", eg.ip ? `${eg.ip} AS${eg.asn || "?"} ${eg.as_name || ""} (matches provider: ${eg.matches_provider || "n/a"})` : "—"],
+    ["ECS", eg.ecs || "—"], ["Identity", Object.entries(r.identity || {}).map(([k, v]) => k + "=" + v).join("; ") || "—"]];
+  return h("div", null,
+    h("div", { class: "kv", style: "margin-bottom:12px" }, kv.map(([k, v]) => [h("div", null, k), h("div", null, v)])),
+    tbl(["", "Test", "Detail", "Query", "RTT", "Rcode / flags", "Answers / EDE / error"], (r.tests || []).map((t) => h("tr", null,
+      h("td", null, dot(t.status)), h("td", null, t.name), h("td", null, t.detail), h("td", { class: "mono" }, t.query || ""),
+      h("td", { class: "mono" }, fmtMs(t.rtt_ms)), h("td", { class: "mono" }, [t.rcode, t.flags].filter(Boolean).join(" ")),
+      h("td", { class: "mono", style: "white-space:normal;word-break:break-all" }, [].concat(t.answers || [], t.ede || [], t.error ? [t.error] : []).join("\n").slice(0, 600))))));
+}
+
+function famCard(name, f, pub) {
+  const ok = f.working;
+  return h("div", { class: "card" },
+    h("h4", null, name, " ", h("span", { class: "tag " + (ok ? "good" : f.has_global_address || f.has_default_route ? "bad" : "") }, ok ? "WORKING" : (f.has_global_address || f.has_default_route ? "BROKEN" : "NOT PROVISIONED"))),
+    h("div", { class: "kv" },
+      h("div", null, "Address"), h("div", null, f.has_address ? "yes" : "no"),
+      h("div", null, "Global address"), h("div", null, f.has_global_address ? "yes" : "no"),
+      h("div", null, "Default route"), h("div", null, f.has_default_route ? "yes" : "no"),
+      h("div", null, "Public IP"), h("div", null, pub.ip || "—"),
+      h("div", null, "Cloudflare PoP"), h("div", null, [pub.colo, pub.loc].filter(Boolean).join(" · ") || "—"),
+      h("div", null, "Clock skew"), h("div", null, pub.clock_known ? pub.clock_skew_sec.toFixed(1) + " s" : "—"),
+      pub.error ? [h("div", null, "Note"), h("div", null, pub.error)] : null),
+    h("div", { style: "margin-top:10px" }, (f.probes || []).map((p) => h("div", { class: "hop" }, dot(p.ok ? "pass" : "fail"), " ", p.target, " ", p.name, " — ", p.ok ? fmtMs(p.rtt_ms) : p.error_class))));
+}
+function renderConn() {
+  const c = report.connectivity, p = report.public_ip;
+  fill($("t-conn"), 
+    h("div", { class: "grid2" }, famCard("IPv4", c.ipv4, p.ipv4), famCard("IPv6", c.ipv6, p.ipv6)),
+    (p.notes || []).length ? h("ul", { class: "small" }, p.notes.map((n) => h("li", null, n))) : null,
+    h("h3", { class: "sec" }, "OS resolver path (what your apps experience)"),
+    tbl(["", "Name", "Purpose", "IPv4", "IPv6", "Time", "Answer / error"], report.os_lookups.map((l) => h("tr", null,
+      h("td", null, dot(l.ok ? "pass" : "fail")), h("td", { class: "mono" }, l.name), h("td", null, l.purpose), h("td", null, l.has_v4 ? "yes" : "—"), h("td", null, l.has_v6 ? "yes" : "—"),
+      h("td", { class: "mono" }, fmtMs(l.ms)), h("td", { class: "mono", style: "white-space:normal;word-break:break-all" }, l.error || (l.addrs || []).join(", "))))),
+    h("h3", { class: "sec" }, "Dual-stack reachability"),
+    tbl(["Host", "A", "AAAA", "IPv4 connect", "IPv6 connect"], (report.dual_stack || []).map((d) => h("tr", null,
+      h("td", { class: "mono" }, d.host), h("td", null, d.has_a ? "yes" : "no"), h("td", null, d.has_aaaa ? "yes" : "no"),
+      h("td", null, d.v4 ? [dot(d.v4.ok ? "pass" : "fail"), " ", d.v4.ok ? fmtMs(d.v4.rtt_ms) : d.v4.error_class] : "—"),
+      h("td", null, d.v6 ? [dot(d.v6.ok ? "pass" : "fail"), " ", d.v6.ok ? fmtMs(d.v6.rtt_ms) : d.v6.error_class] : "—")))));
+}
+function renderSystem() {
+  const s = report.system || {};
+  const ifs = (s.interfaces || []).filter((i) => i.up || (i.addrs || []).length);
+  fill($("t-system"), 
+    h("div", { class: "grid2" },
+      h("div", { class: "card" }, h("h4", null, "Host"), h("div", { class: "kv" },
+        h("div", null, "OS"), h("div", null, s.os_version || s.os), h("div", null, "Hostname"), h("div", null, s.hostname),
+        h("div", null, "Resolver manager"), h("div", null, s.resolver_manager || "—"),
+        h("div", null, "Search domains"), h("div", null, (s.search_domains || []).join(", ") || "—"),
+        h("div", null, "Resolver options"), h("div", null, Object.entries(s.resolver_options || {}).map(([k, v]) => v ? k + ":" + v : k).join(" ") || "—"))),
+      h("div", { class: "card" }, h("h4", null, "DNS failover"), h("div", { class: "kv" },
+        h("div", null, "Configured"), h("div", null, report.failover.configured_count), h("div", null, "Working"), h("div", null, report.failover.working_count),
+        h("div", null, "Distinct hosts"), h("div", null, report.failover.distinct_hosts), h("div", null, "Worst-case delay"), h("div", null, report.failover.worst_case_sec ? "~" + report.failover.worst_case_sec + " s" : "—"),
+        h("div", null, "Behaviour"), h("div", { style: "font-family:var(--sans)" }, report.failover.model || "—")))),
+    h("h3", { class: "sec" }, "Configured DNS servers"),
+    tbl(["#", "Address", "Kind", "Interface", "Source"], [].concat(
+      (s.stub_resolvers || []).map((r, i) => h("tr", null, h("td", null, i + 1), h("td", { class: "mono" }, r.addr), h("td", null, "local stub"), h("td", null, r.interface || ""), h("td", null, r.source))),
+      (s.resolvers || []).map((r, i) => h("tr", null, h("td", null, i + 1), h("td", { class: "mono" }, r.addr), h("td", null, "upstream"), h("td", null, r.interface || ""), h("td", null, r.source))),
+      (s.split_resolvers || []).map((r, i) => h("tr", null, h("td", null, i + 1), h("td", { class: "mono" }, r.addr), h("td", null, "split DNS: " + r.domain), h("td", null, r.interface || ""), h("td", null, r.source))))),
+    h("h3", { class: "sec" }, "Default gateways"),
+    tbl(["Family", "Gateway", "Interface", "Metric", "Source"], (s.default_gateways || []).map((g) => h("tr", null, h("td", null, "IPv" + g.family), h("td", { class: "mono" }, g.gateway), h("td", null, g.interface || ""), h("td", null, g.metric || ""), h("td", null, g.source)))),
+    h("h3", { class: "sec" }, "Interfaces"),
+    tbl(["Name", "State", "MTU", "Addresses", "Notes"], ifs.map((i) => h("tr", null, h("td", null, i.name), h("td", null, i.up ? "up" : "down"), h("td", { class: "mono" }, i.mtu),
+      h("td", { class: "mono" }, (i.addrs || []).map((a) => h("div", null, a.cidr + "  ", h("span", { class: "small" }, a.scope)))),
+      h("td", null, [i.loopback ? "loopback" : "", i.likely_vpn ? "VPN/tunnel" : ""].filter(Boolean).join(", "))))),
+    (s.notes || []).length ? [h("h3", { class: "sec" }, "Notes"), h("ul", null, s.notes.map((n) => h("li", null, n)))] : null,
+    h("h3", { class: "sec" }, "Raw command output"),
+    (s.raw || []).map((r) => h("details", { class: "finding info" }, h("summary", null, h("span", { class: "title mono" }, r.command), r.error ? h("span", { class: "fid" }, r.error) : null), h("div", { class: "body" }, h("pre", { class: "raw" }, r.output || "(no output)")))));
+}
+function renderRouting() {
+  const rt = report.routing || {}, ic = report.interception || {};
+  fill($("t-routing"), 
+    h("h3", { class: "sec" }, "Interception probes"),
+    tbl(["", "Probe", "Result"], (ic.bogon_probes || []).map((b) => h("tr", null, h("td", null, dot(b.status)), h("td", null, b.name), h("td", null, b.detail)))),
+    h("h3", { class: "sec" }, "Who actually resolves your queries (egress)"),
+    tbl(["Resolver", "Address", "Egress IP", "ASN", "Network", "Matches provider", "ECS"], report.resolvers.filter((r) => r.egress && r.egress.ip).map((r) => h("tr", null,
+      h("td", null, r.label), h("td", { class: "mono" }, r.addr), h("td", { class: "mono" }, r.egress.ip), h("td", { class: "mono" }, r.egress.asn ? "AS" + r.egress.asn : ""),
+      h("td", null, r.egress.as_name || ""), h("td", null, h("span", { class: "tag " + (r.egress.matches_provider === "yes" ? "good" : r.egress.matches_provider === "no" ? "bad" : "") }, r.egress.matches_provider || "n/a")), h("td", { class: "mono" }, r.egress.ecs || "")))),
+    h("h3", { class: "sec" }, "Route selection"),
+    tbl(["Destination", "Purpose", "Interface", "Source", "On-link", "VPN", "Error"], (rt.route_choices || []).map((c) => h("tr", null,
+      h("td", { class: "mono" }, c.dest), h("td", null, c.label), h("td", null, c.interface || ""), h("td", { class: "mono" }, c.local_addr || ""), h("td", null, c.on_link ? "yes" : "no"), h("td", null, c.via_vpn ? "yes" : "no"), h("td", null, c.error || "")))),
+    (rt.traceroutes || []).map((t) => [h("h3", { class: "sec" }, t.label),
+      t.error && !(t.hops || []).length ? h("p", { class: "small" }, t.error) :
+      tbl(["Hop", "Address", "Scope", "RTT"], (t.hops || []).map((x) => h("tr", null, h("td", { class: "mono" }, x.ttl), h("td", { class: "mono" }, x.timeout ? "*" : x.addr), h("td", null, x.scope || ""), h("td", { class: "mono" }, x.timeout ? "" : fmtMs(x.rtt_ms)))))]));
+}
+async function renderReportTab() {
+  const r = await api("/api/report.md?x=1" + rq());
+  const txt = await r.text();
+  fill($("t-report"), 
+    h("p", { class: "small" }, "This is exactly what “Copy report for AI” puts on your clipboard. It already includes instructions for the AI at the top."),
+    h("pre", { class: "raw" }, txt));
+}
+init();
+</script>
+</body>
+</html>
