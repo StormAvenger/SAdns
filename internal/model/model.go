@@ -39,6 +39,7 @@ type Report struct {
 	Routing      Routing          `json:"routing"`
 	Network      NetHealth        `json:"network_health"`
 	Web          []WebTiming      `json:"web_timings"`
+	Data         DataUsage        `json:"data_usage"`
 	Privacy      string           `json:"privacy"`             // full, technical, public
 	Cancelled    bool             `json:"cancelled,omitempty"` // run stopped early: results incomplete
 }
@@ -61,6 +62,7 @@ type Options struct {
 	URLs        []string `json:"user_urls,omitempty"`
 	Extra       []string `json:"extra_resolvers"`
 	Quick       bool     `json:"quick"`
+	LowData     bool     `json:"low_data"`
 	Traceroute  bool     `json:"traceroute"`
 	Encrypted   bool     `json:"encrypted"`
 	IPv4        bool     `json:"ipv4"`
@@ -374,6 +376,7 @@ type HTTPCheck struct {
 	Status int     `json:"status"`
 	Expect string  `json:"expect"`
 	Detail string  `json:"detail"`
+	Bytes  int     `json:"bytes,omitempty"`
 	Proxy  string  `json:"proxy_headers,omitempty"`
 	MS     float64 `json:"ms"`
 	Error  string  `json:"error,omitempty"`
@@ -415,9 +418,18 @@ type WebTiming struct {
 	MaxElapsedMS float64   `json:"max_elapsed_ms,omitempty"`
 	RunTotalsMS  []float64 `json:"run_elapsed_ms,omitempty"`
 	Bytes        int64     `json:"bytes,omitempty"`
-	Truncated    bool      `json:"truncated,omitempty"` // stopped at the read limit (not a failure)
-	RateKbps     float64   `json:"rate_kbps,omitempty"`
-	Error        string    `json:"error,omitempty"`
+	// Outcome of the representative run — see the Outcome* constants.
+	Outcome         string  `json:"outcome,omitempty"`
+	Reachable       bool    `json:"reachable"`                  // a response was received
+	HTTPOK          bool    `json:"http_ok"`                    // final status was 2xx
+	ContentLength   int64   `json:"content_length,omitempty"`   // declared size on the wire; -1 = not declared
+	ContentEncoding string  `json:"content_encoding,omitempty"` // bytes are counted as transferred (compressed)
+	FailedRuns      int     `json:"failed_runs,omitempty"`
+	LimitedRuns     int     `json:"budget_limited_runs,omitempty"` // skipped or cut short by the scan data budget
+	SampledRuns     int     `json:"sampled_runs,omitempty"`        // stopped at the per-response sample limit
+	BytesAllRuns    int64   `json:"bytes_all_runs,omitempty"`
+	RateKbps        float64 `json:"rate_kbps,omitempty"`
+	Error           string  `json:"error,omitempty"`
 }
 
 // Layer is one hop of the diagnostic path with its worst observed status.
@@ -426,4 +438,29 @@ type Layer struct {
 	Name   string `json:"name"`
 	Status string `json:"status"` // pass, warn, fail, unknown
 	Note   string `json:"note"`
+}
+
+// Download outcomes, from strongest to weakest claim.
+const (
+	OutcomeVerified = "complete-verified" // whole body received and it matches the declared Content-Length
+	OutcomeComplete = "complete"          // body ended cleanly, but no length was declared to verify against (chunked/streamed)
+	OutcomeSampled  = "sampled"           // deliberately stopped at the per-response sample limit; the rest was not downloaded
+	OutcomeBudget   = "budget-limited"    // skipped or cut short because the scan's data budget was used up
+	OutcomeFailed   = "failed"            // error status, interrupted or incomplete transfer, or no response
+)
+
+// DataUsage reports HTTP data downloaded by the scan and the limits in force.
+type DataUsage struct {
+	Mode               string `json:"mode"` // standard, low-data
+	HTTPBodyBytes      int64  `json:"http_body_bytes"`
+	HTTPRequests       int    `json:"http_requests"`
+	SampledResponses   int    `json:"responses_stopped_at_sample_limit"`
+	BudgetLimited      int    `json:"requests_limited_by_budget"`
+	ScanBudgetBytes    int64  `json:"scan_budget_bytes"` // 0 = no scan-level budget
+	BaselineLimitBytes int64  `json:"per_response_limit_bytes"`
+	CustomLimitBytes   int64  `json:"per_response_limit_user_urls_bytes"`
+	WebSamples         int    `json:"website_samples_per_family"`
+	ConfidenceAffected bool   `json:"confidence_affected"`
+	Note               string `json:"note,omitempty"`
+	Scope              string `json:"scope"`
 }

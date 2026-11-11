@@ -283,6 +283,7 @@ type runReq struct {
 	// NoProviders must be set explicitly: an empty Providers list alone means
 	// "default (all)" for API callers, so the UI sends this when every chip is off.
 	NoProviders bool     `json:"no_providers"`
+	LowData     bool     `json:"low_data"`
 	URLs        []string `json:"urls"`
 	Extra       []string `json:"extra"`
 	Traceroute  bool     `json:"traceroute"`
@@ -297,7 +298,7 @@ func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	resp := infoResp{
 		Tool: s.opt.Tool, Token: s.token, OS: runtime.GOOS, Arch: runtime.GOARCH, Providers: probe.Providers,
 		Defaults: runReq{Quick: d.Quick, Samples: d.Samples, TimeoutMS: int(d.Timeout.Milliseconds()), Providers: d.Providers, Extra: d.Extra,
-			Traceroute: d.Traceroute, Encrypted: d.Encrypted, IPv4: d.IPv4, IPv6: d.IPv6},
+			LowData: d.LowData, Traceroute: d.Traceroute, Encrypted: d.Encrypted, IPv4: d.IPv4, IPv6: d.IPv6},
 		Running: s.running, HasReport: s.rep != nil,
 	}
 	s.mu.Unlock()
@@ -346,6 +347,7 @@ func (s *server) handleRun(srvCtx context.Context, w http.ResponseWriter, r *htt
 		}
 	}
 	cfg.Traceroute, cfg.Encrypted, cfg.IPv4, cfg.IPv6 = req.Traceroute, req.Encrypted, req.IPv4, req.IPv6
+	cfg.LowData = req.LowData
 
 	s.mu.Lock()
 	if s.running {

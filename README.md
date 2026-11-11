@@ -66,6 +66,7 @@ sadns ui --no-browser             # start the UI and print its URL
 | Flag | Meaning |
 |---|---|
 | `--quick` | Primary address per provider/family, 3 samples, no traceroute |
+| `--low-data` | Low Data Mode (off by default): 1 website sample per address family, 512 KiB per response, 10 MiB of HTTP downloads per scan. All DNS, ping, routing, TLS and IPv4/IPv6 tests still run |
 | `--url URL` | Also time this website/resource (repeatable, max 5), e.g. an image that loads slowly |
 | `--resolver ip[:port]` | Extra resolver(s) to test (repeatable / comma-separated) |
 | `--providers list` | `cloudflare,google,quad9,opendns,adguard,controld`, or `none` |
@@ -76,6 +77,22 @@ sadns ui --no-browser             # start the UI and print its URL
 | `--out DIR`, `--stdout md\|json` | Where the report goes |
 
 With no command, SAdns opens the UI on desktops and falls back to terminal mode on headless systems.
+
+## Data usage
+
+SAdns defaults to **Standard / High Data**: full-quality measurements with three website samples per resource and address family, up to 512 KiB read from each built-in test page and up to 20 MiB from each URL you add. There is no scan-wide cap in this mode, so five large custom URLs can add up to roughly 600 MiB in the worst case.
+
+Turn on **Low Data Mode** (toggle on the start screen, remembered per browser; `--low-data` on the CLI) for metered or slow links:
+
+| | Standard (default) | Low Data Mode |
+|---|---|---|
+| Website samples per resource and family | 3 | 1 |
+| Max body read per response | 512 KiB (20 MiB for your URLs) | 512 KiB |
+| HTTP download budget per scan | none | 10 MiB, shared and enforced across concurrent tests |
+| DNS, ping, MTU, NTP, routing, TLS, IPv4/IPv6 tests | all | all |
+| Website timing confidence | suspected | inconclusive (single samples) |
+
+Every report states the mode, the HTTP body bytes actually downloaded, the number of requests, and how many responses were stopped at the sample limit or skipped by the budget. Each download is classified as *complete-verified*, *complete* (no declared length to verify), *sampled* (deliberately stopped — not an error, not a full download), *budget-limited* (not tested) or *failed*. The byte count covers HTTP response bodies only — not DNS, TLS/protocol overhead, ping or traceroute traffic. All limits live in one place: `NewDataPolicy` in `internal/probe/datapolicy.go`.
 
 ## Privacy
 
@@ -138,6 +155,7 @@ Releases are built by GitHub Actions: push a `v*` tag, or run **Actions → Rele
 - **More protocols:** DNS-over-QUIC, DoH over HTTP/3, HTTPS/SVCB parameter inspection, negative-caching and stale-answer behaviour
 - **History & monitoring:** baselines, before/after comparison, scheduled JSON output, Docker image for Unraid
 - **Guided diagnostics:** start from a symptom ("Wi-Fi calls drop", "one site won't load") and run the relevant checks
+- **Opt-in heavy tests:** packet capture, throughput and bufferbloat-under-load tests (never part of the default scan)
 - Signed/notarised Windows and macOS binaries
 
 See [CHANGELOG.md](CHANGELOG.md) for what is already implemented.

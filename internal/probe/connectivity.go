@@ -165,6 +165,7 @@ func (e *Engine) trace(ctx context.Context, ip string, familyWorking bool) model
 	defer tr.CloseIdleConnections()
 	cl := &http.Client{Transport: tr, Timeout: 8 * time.Second}
 	body, resp, err := get(ctx, cl, "https://one.one.one.one/cdn-cgi/trace")
+	e.meter.note(int64(len(body)))
 	ti.Method = "https://one.one.one.one/cdn-cgi/trace via " + ip
 	recv := time.Now()
 	if err != nil {
@@ -181,6 +182,7 @@ func (e *Engine) trace(ctx context.Context, ip string, familyWorking bool) model
 		}}
 		defer tr2.CloseIdleConnections()
 		body, resp, err = get(ctx, &http.Client{Transport: tr2, Timeout: 6 * time.Second}, "http://one.one.one.one/cdn-cgi/trace")
+		e.meter.note(int64(len(body)))
 		recv = time.Now()
 		if err == nil {
 			ti.Method = "http://one.one.one.one/cdn-cgi/trace via " + ip + " (HTTPS failed)"

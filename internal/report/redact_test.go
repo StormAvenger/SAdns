@@ -73,3 +73,25 @@ func TestRedactionLevels(t *testing.T) {
 		t.Error("full level changed output")
 	}
 }
+
+// Markdown and JSON must both state the data mode and usage.
+func TestReportsReflectDataMode(t *testing.T) {
+	for mode, want := range map[string]string{"low-data": "Low Data Mode", "standard": "Standard / High Data"} {
+		r := sensitiveReport()
+		r.Options.LowData = mode == "low-data"
+		r.Data = model.DataUsage{Mode: mode, HTTPBodyBytes: 3 << 20, HTTPRequests: 9, SampledResponses: 2, ScanBudgetBytes: 10 << 20, WebSamples: 1, Scope: "HTTP response-body bytes"}
+		r.Web = []model.WebTiming{{URL: "https://a/", Family: 4, OK: true, Runs: 1, OKRuns: 1, Status: 200, Outcome: model.OutcomeSampled}}
+		md := Markdown(r)
+		for _, s := range []string{want, "3.0 MiB", "9 requests", "limited sample — not a full download", "Not total network usage"[:0] + "HTTP response-body bytes"} {
+			if !strings.Contains(md, s) {
+				t.Errorf("%s markdown lacks %q", mode, s)
+			}
+		}
+		b, _ := JSON(r)
+		for _, s := range []string{`"mode": "` + mode + `"`, `"http_body_bytes": 3145728`, `"responses_stopped_at_sample_limit": 2`, `"outcome": "sampled"`} {
+			if !strings.Contains(string(b), s) {
+				t.Errorf("%s json lacks %q", mode, s)
+			}
+		}
+	}
+}

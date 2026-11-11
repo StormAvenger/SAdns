@@ -24,6 +24,7 @@ type Config struct {
 	NoProviders bool     // test no public providers at all
 	URLs        []string // extra websites to time (user-specified)
 	Extra       []string // extra resolvers ("ip" or "ip:port")
+	LowData     bool     // Low Data Mode: see DataPolicy
 	Quick       bool     // primary address per provider/family only, fewer samples
 	Traceroute  bool
 	Encrypted   bool // DoT/DoH tests
@@ -49,11 +50,13 @@ type Event struct {
 
 // Engine executes a run.
 type Engine struct {
-	cfg  Config
-	sys  *sysinfo.Info
-	emit func(Event)
-	mu   sync.Mutex
-	prog float64
+	cfg   Config
+	sys   *sysinfo.Info
+	emit  func(Event)
+	pol   DataPolicy
+	meter *dataMeter
+	mu    sync.Mutex
+	prog  float64
 }
 
 // New creates an engine. emit may be nil.
@@ -73,7 +76,8 @@ func New(cfg Config, emit func(Event)) *Engine {
 	if emit == nil {
 		emit = func(Event) {}
 	}
-	return &Engine{cfg: cfg, emit: emit}
+	pol := NewDataPolicy(cfg.LowData, cfg.Quick)
+	return &Engine{cfg: cfg, emit: emit, pol: pol, meter: &dataMeter{budget: pol.ScanBodyBudget}}
 }
 
 func (e *Engine) phase(p float64, name, msg string) {
@@ -96,7 +100,7 @@ func (e *Engine) Run(ctx context.Context) *model.Report {
 	rep := &model.Report{Schema: "sadns/report/v1", StartedAt: time.Now()}
 	rep.Options = model.Options{
 		Samples: e.cfg.Samples, TimeoutMS: e.cfg.Timeout.Milliseconds(), Providers: e.cfg.Providers, NoProviders: e.cfg.NoProviders, URLs: e.cfg.URLs,
-		Extra: e.cfg.Extra, Quick: e.cfg.Quick, Traceroute: e.cfg.Traceroute, Encrypted: e.cfg.Encrypted,
+		Extra: e.cfg.Extra, Quick: e.cfg.Quick, LowData: e.cfg.LowData, Traceroute: e.cfg.Traceroute, Encrypted: e.cfg.Encrypted,
 		IPv4: e.cfg.IPv4, IPv6: e.cfg.IPv6,
 	}
 
@@ -113,6 +117,7 @@ func (e *Engine) Run(ctx context.Context) *model.Report {
 		return false
 	}
 	finish := func() *model.Report {
+		rep.Data = e.dataUsage()
 		rep.FinishedAt = time.Now()
 		rep.DurationSec = round2(rep.FinishedAt.Sub(rep.StartedAt).Seconds())
 		return rep

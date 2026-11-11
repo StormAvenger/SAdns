@@ -271,6 +271,7 @@ footer{color:var(--label3);font-size:12.5px;text-align:center;padding:30px}
         <label class="switch"><input type="checkbox" id="o-v6" checked>IPv6</label>
         <label class="switch"><input type="checkbox" id="o-enc" checked>DoT / DoH</label>
         <label class="switch"><input type="checkbox" id="o-tr" checked>Traceroute</label>
+        <label class="switch" title="Off (default): full-quality tests — 3 website samples, up to 20 MiB per custom URL. On: 1 website sample per address family, 512 KiB per response, 10 MiB of HTTP downloads per scan. DNS, ping, routing, TLS and IPv4/IPv6 tests always run."><input type="checkbox" id="o-low">Low Data Mode</label>
       </div>
       <div class="field row">
         <div><div class="label">Latency samples</div><input type="number" id="o-samples" min="1" max="50" value="5"></div>
@@ -353,6 +354,8 @@ function h(tag, attrs, ...kids) {
 function fill(el, ...kids) { el.replaceChildren(); for (const k of kids.flat(Infinity)) { if (k == null || k === false) continue; el.appendChild(k instanceof Node ? k : document.createTextNode(String(k))); } }
 const api = (path, opts = {}) => fetch(path, { credentials: "same-origin", ...opts, headers: { ...(opts.headers || {}), "X-SAdns-Token": TOKEN } });
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2400); }
+const fmtBytes = (n) => n >= 1048576 ? (n / 1048576).toFixed(1) + " MiB" : n >= 1024 ? Math.round(n / 1024) + " KiB" : (n || 0) + " B";
+const OUTCOME = { "complete-verified": ["complete ✓ verified", "good"], complete: ["complete (length unknown)", ""], sampled: ["limited sample", "meh"], "budget-limited": ["budget reached — not tested", ""], failed: ["failed", "bad"] };
 const fmtMs = (v) => v == null || v === 0 ? "—" : (v < 10 ? v.toFixed(1) : Math.round(v)) + " ms";
 const sevLabel = { fail: "FAIL", warn: "WARN", info: "INFO", pass: "PASS", skip: "SKIP" };
 const dot = (s) => h("span", { class: "dot " + (s || "skip"), title: s || "n/a" });
@@ -403,6 +406,11 @@ async function init() {
   $("o-samples").value = info.defaults.samples || 5;
   $("o-timeout").value = info.defaults.timeout_ms || 2000;
   $("o-tr").checked = info.defaults.traceroute; $("o-enc").checked = info.defaults.encrypted;
+  // Remember the Low Data preference per browser; new installs default to off.
+  let low = info.defaults.low_data;
+  try { const v = localStorage.getItem("sadns-lowdata"); if (v !== null) low = v === "1"; } catch {}
+  $("o-low").checked = !!low;
+  $("o-low").addEventListener("change", () => { try { localStorage.setItem("sadns-lowdata", $("o-low").checked ? "1" : "0"); } catch {} });
   fill($("phases"), PHASES.map(([k, n]) => h("div", { class: "phase", id: "ph-" + k }, n)));
   if (info.running || info.has_report) { show("run"); listen(); }
 }
@@ -422,6 +430,7 @@ $("run").addEventListener("click", async () => {
     samples: +$("o-samples").value || 0,
     timeout_ms: +$("o-timeout").value || 0,
     providers: [...document.querySelectorAll("#provs input:checked")].map((c) => c.value),
+    low_data: $("o-low").checked,
     no_providers: document.querySelectorAll("#provs input:checked").length === 0,
     urls: $("o-urls").value.split(/[\s,]+/).filter(Boolean),
     extra: $("o-extra").value.split(/[\s,]+/).filter(Boolean),
@@ -519,7 +528,7 @@ function renderResults() {
   $("verdict").className = "glass verdict v-" + s.verdict;
   fill($("verdict"),
     h("div", { class: "orb" }, icon),
-    h("div", null, h("h2", null, title), h("p", null, s.headline), h("p", { class: "small" }, `${report.duration_sec.toFixed(1)} s · ${report.resolvers.length} resolver addresses · ${new Date(report.started_at).toLocaleString()}`)),
+    h("div", null, h("h2", null, title), h("p", null, s.headline), h("p", { class: "small" }, `${report.duration_sec.toFixed(1)} s · ${report.resolvers.length} resolver addresses · ${(report.data_usage || {}).mode === "low-data" ? "Low Data Mode" : "Standard data"}: ${fmtBytes((report.data_usage || {}).http_body_bytes)} HTTP test downloads · ${new Date(report.started_at).toLocaleString()}`)),
     h("div", { class: "counts" }, counts.map(([c, k, n]) => h("div", { class: "count " + c, onclick: () => { selectTab("findings"); filterFindings(k); } }, h("b", null, n), h("span", null, k)))));
   renderFindings(); renderResolvers(); renderNetwork(); renderConn(); renderSystem(); renderRouting();
   selectTab("findings");
@@ -596,6 +605,20 @@ function resolverDetail(r) {
       h("td", { class: "mono", style: "white-space:normal;word-break:break-all;max-width:360px" }, [].concat(t.answers || [], t.ede || [], t.error ? [t.error] : []).join("\n").slice(0, 600)))), false));
 }
 
+function dataCard() {
+  const d = report.data_usage || {};
+  const low = d.mode === "low-data";
+  return h("div", { class: "glass card", style: "margin-bottom:16px" },
+    h("h4", null, "HTTP data used by this scan", h("span", { class: "tag " + (low ? "meh" : "") }, low ? "Low Data Mode" : "Standard / High Data")),
+    h("div", { class: "big-num" }, fmtBytes(d.http_body_bytes), h("small", null, d.scan_budget_bytes ? "of " + fmtBytes(d.scan_budget_bytes) + " budget" : "no scan budget")),
+    h("div", { class: "kv", style: "margin-top:12px" },
+      h("div", null, "Requests"), h("div", null, `${d.http_requests} (${d.website_samples_per_family} sample(s) per resource and family)`),
+      h("div", null, "Stopped at sample limit"), h("div", null, `${d.responses_stopped_at_sample_limit} response(s) — limit ${fmtBytes(d.per_response_limit_bytes)}, ${fmtBytes(d.per_response_limit_user_urls_bytes)} for your URLs`),
+      h("div", null, "Limited by budget"), h("div", null, `${d.requests_limited_by_budget} request(s)`),
+      h("div", null, "Confidence"), h("div", null, d.confidence_affected ? "reduced — single website samples" : "not affected")),
+    d.note ? h("div", { class: "small", style: "margin-top:10px;color:var(--orange)" }, d.note) : null,
+    h("div", { class: "small", style: "margin-top:8px" }, d.scope || ""));
+}
 function renderNetwork() {
   const n = report.network_health || {};
   const pingCard = (p) => {
@@ -620,15 +643,17 @@ function renderNetwork() {
   fill($("t-network"),
     web.length ? [h("h3", { class: "sec" }, "Website loading — where the time goes"),
       h("div", { class: "legend" }, [["DNS", "#BF5AF2"], ["Connect", "var(--tint2)"], ["TLS", "var(--orange)"], ["First byte", "var(--green)"], ["Download", "var(--gray)"]].map(([n, c]) => h("span", { style: "--c:" + c }, n))),
-      h("p", { class: "small", style: "margin:0 4px 10px" }, "Single resources loaded several times on fresh connections (median run shown) — a baseline, not a full browser page load. Add your own URLs under “Websites to time” on the start screen."),
-      tbl(["", "Resource", "Family", "Phases", "DNS", "Connect", "TLS", "First byte", "Transfer", "Measured", "Range", "Runs", "Details"], web.map((w) => h("tr", null,
-        h("td", null, dot(w.ok ? "pass" : w.ok_runs ? "warn" : "fail")),
+      h("p", { class: "small", style: "margin:0 4px 10px" }, ((report.data_usage || {}).website_samples_per_family > 1 ? "Single resources loaded several times on fresh connections (median run shown)" : "Single resources loaded once per address family (Low Data Mode)") + " — a baseline, not a full browser page load. Add your own URLs under “Websites to time” on the start screen."),
+      dataCard(),
+      tbl(["", "Resource", "Family", "Phases", "DNS", "Connect", "TLS", "First byte", "Transfer", "Measured", "Range", "Runs", "Download", "Details"], web.map((w) => h("tr", null,
+        h("td", null, dot(w.ok ? "pass" : w.ok_runs ? "warn" : w.failed_runs ? "fail" : "unknown")),
         h("td", { class: "mono", title: w.url }, w.host, w.user_specified ? h("div", { class: "small" }, "your URL") : null), h("td", null, w.family ? "IPv" + w.family : "—"),
-        h("td", null, w.ok_runs ? bar(w) : h("span", { class: "small" }, w.error || "failed")),
+        h("td", null, w.ok_runs ? bar(w) : h("span", { class: "small" }, w.error || (w.outcome === "budget-limited" ? "not tested — data budget reached" : "failed"))),
         h("td", { class: "mono" }, fmtMs(w.dns_ms)), h("td", { class: "mono" }, fmtMs(w.connect_ms)), h("td", { class: "mono" }, fmtMs(w.tls_ms)),
         h("td", { class: "mono" }, fmtMs(w.ttfb_ms)), h("td", { class: "mono" }, fmtMs(w.download_ms)), h("td", { class: "mono" }, fmtMs(w.total_ms)),
         h("td", { class: "mono" }, w.ok_runs ? `${Math.round(w.min_elapsed_ms)}–${Math.round(w.max_elapsed_ms)} ms` : "—"),
         h("td", { class: "mono" }, `${w.ok_runs}/${w.runs}`),
+        h("td", null, h("span", { class: "tag " + (OUTCOME[w.outcome] || ["", ""])[1], title: w.content_length > 0 ? "declared size " + fmtBytes(w.content_length) : "" }, (OUTCOME[w.outcome] || [w.outcome || "—"])[0]), h("div", { class: "small" }, fmtBytes(w.bytes_all_runs || w.bytes) + (w.runs > 1 ? " total" : ""))),
         h("td", { class: "small" }, [[w.proto, w.tls_version].filter(Boolean).join(" "), w.redirects ? `${w.redirects} redirect(s), ${Math.round(w.redirect_ms)} ms` : "", w.rate_kbps ? `${(w.rate_kbps / 1000).toFixed(1)} Mbit/s` : "", w.ok || !w.ok_runs ? "" : w.error].filter(Boolean).join(" · ")))))] : null,
     h("h3", { class: "sec" }, "Packet loss & latency"),
     (n.pings || []).length ? h("div", { class: "grid3" }, n.pings.map(pingCard)) : h("p", { class: "small" }, "No ping targets."),

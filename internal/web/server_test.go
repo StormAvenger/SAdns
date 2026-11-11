@@ -103,7 +103,7 @@ func TestCancelRun(t *testing.T) {
 	s, mux, cancel := newTestServer()
 	defer cancel()
 	hdr := map[string]string{"Cookie": "sadns_1234=secret-token", "X-SAdns-Token": "secret-token"}
-	body, _ := json.Marshal(runReq{NoProviders: true, Extra: []string{m.Addr}, IPv4: true, IPv6: true, Samples: 1, TimeoutMS: 500})
+	body, _ := json.Marshal(runReq{NoProviders: true, LowData: true, Extra: []string{m.Addr}, IPv4: true, IPv6: true, Samples: 1, TimeoutMS: 500})
 	if r := do(mux, "POST", "/api/run", hdr, string(body)); r.Code != 200 {
 		t.Fatalf("run: %d %s", r.Code, r.Body)
 	}
@@ -117,6 +117,9 @@ func TestCancelRun(t *testing.T) {
 		done, rep := !s.running, s.rep
 		s.mu.Unlock()
 		if done && rep != nil {
+			if !rep.Options.LowData || rep.Data.Mode != "low-data" || rep.Data.ScanBudgetBytes == 0 {
+				t.Fatalf("low_data not reflected in the report: %+v / %+v", rep.Options, rep.Data)
+			}
 			if !rep.Cancelled || rep.Summary.Verdict != "cancelled" {
 				t.Fatalf("report not marked cancelled: %+v", rep.Summary)
 			}

@@ -74,6 +74,7 @@ func realMain(args []string) int {
 		samples    = fs.Int("samples", def.Samples, "latency samples per resolver")
 		timeout    = fs.Duration("timeout", def.Timeout, "per-query timeout")
 		noTrace    = fs.Bool("no-traceroute", false, "skip traceroutes")
+		lowData    = fs.Bool("low-data", false, "Low Data Mode: 1 website sample per address family, 512 KiB per response, 10 MiB HTTP budget per scan (all DNS/ping/routing tests still run)")
 		noEnc      = fs.Bool("no-encrypted", false, "skip DNS-over-TLS / DNS-over-HTTPS tests")
 		only4      = fs.Bool("4", false, "IPv4 only")
 		only6      = fs.Bool("6", false, "IPv6 only")
@@ -115,6 +116,7 @@ func realMain(args []string) int {
 		cfg.Traceroute = !*noTrace
 	}
 	cfg.Encrypted = !*noEnc
+	cfg.LowData = *lowData
 	cfg.Concurrency = *concurrent
 	cfg.Extra = extra
 	for i, u := range urls {

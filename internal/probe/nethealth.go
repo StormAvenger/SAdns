@@ -101,7 +101,10 @@ func (e *Engine) netHealth(ctx context.Context, conn model.Connectivity) model.N
 	}
 	nh.HTTP = make([]model.HTTPCheck, len(checks))
 	for i, c := range checks {
-		run(func() { nh.HTTP[i] = httpCheck(ctx, c.name, c.url, c.expect) })
+		run(func() {
+			nh.HTTP[i] = httpCheck(ctx, c.name, c.url, c.expect)
+			e.meter.note(int64(nh.HTTP[i].Bytes))
+		})
 	}
 
 	// NAT64 / DNS64.
@@ -471,6 +474,7 @@ func httpCheck(ctx context.Context, name, url, expect string) model.HTTPCheck {
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	h.Bytes = len(body)
 	h.Status = resp.StatusCode
 	var px []string
 	for _, k := range []string{"Via", "X-Cache", "X-Squid-Error", "Proxy-Connection", "X-Forwarded-For"} {

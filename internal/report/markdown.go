@@ -67,8 +67,9 @@ func Markdown(r *model.Report) string {
 	if len(r.Summary.Coverage) > 0 {
 		o.p("| **Coverage gaps** | %s |", cell(strings.Join(r.Summary.Coverage, "; ")))
 	}
+	o.p("| **Data mode** | %s |", cell(dataLine(r.Data)))
 	opts := r.Options
-	o.p("| **Options** | samples=%d, timeout=%dms, quick=%v, traceroute=%v, encrypted=%v, ipv4=%v, ipv6=%v |", opts.Samples, opts.TimeoutMS, opts.Quick, opts.Traceroute, opts.Encrypted, opts.IPv4, opts.IPv6)
+	o.p("| **Options** | samples=%d, timeout=%dms, quick=%v, low-data=%v, traceroute=%v, encrypted=%v, ipv4=%v, ipv6=%v |", opts.Samples, opts.TimeoutMS, opts.Quick, opts.LowData, opts.Traceroute, opts.Encrypted, opts.IPv4, opts.IPv6)
 	switch r.Privacy {
 	case PrivacyTechnical:
 		o.p("| **Privacy** | Technical: your public IPs, IPv6 prefix, hostname, MACs and client subnet are replaced with placeholders; LAN layout kept |")
@@ -343,6 +344,15 @@ func Markdown(r *model.Report) string {
 	if len(r.Web) > 0 {
 		o.h2("Website loading (phase breakdown)")
 		o.nl()
+		d := r.Data
+		o.p("**HTTP data downloaded by this scan:** %s in %d requests (mode: %s). %d response(s) were deliberately stopped at the per-response sample limit; %d request(s) were skipped or cut short by the scan budget. Limits: %s per response (%s for user-specified URLs), scan budget %s, %d sample(s) per resource and address family.", bytesText(d.HTTPBodyBytes), d.HTTPRequests, d.Mode, d.SampledResponses, d.BudgetLimited, bytesText(d.BaselineLimitBytes), bytesText(d.CustomLimitBytes), budgetText(d.ScanBudgetBytes), d.WebSamples)
+		o.nl()
+		o.p("_%s_", d.Scope)
+		if d.Note != "" {
+			o.nl()
+			o.p("⚠️ %s", d.Note)
+		}
+		o.nl()
 		o.p("Each row: several fresh connections to ONE resource over one address family (not a full browser page load — no subresources, cache or connection reuse). Phases are from the median run; *Measured* is that run's wall-clock time including redirects, plus the first OS DNS lookup. A row is OK only if every run ended in a complete 2xx response.")
 		o.nl()
 		o.p("| Resource | Family | IP | OK runs | DNS | Connect | TLS | First byte | Transfer | Measured | Range | Redirects | Bytes | Rate | Protocol | Result |")
@@ -352,7 +362,7 @@ func Markdown(r *model.Report) string {
 			if w.Family > 0 {
 				fam = fmt.Sprintf("IPv%d", w.Family)
 			}
-			res := fmt.Sprintf("%d", w.Status)
+			res := fmt.Sprintf("%d — %s", w.Status, outcomeText(w))
 			if w.Error != "" {
 				res = w.Error
 			}
@@ -646,6 +656,8 @@ var methodology = [][2]string{
 	{"NAT64", "AAAA lookup of ipv4only.arpa (RFC 7050); an answer reveals DNS64 and the NAT64 prefix."},
 	{"Local names", "This computer's hostname, PTR lookups of its IP and the gateway, and 'wpad' (which should not exist)."},
 	{"Website loading", "Baseline resources (google.com/generate_204, cloudflare.com/cdn-cgi/trace, wikipedia.org, github.com/robots.txt) plus any user-specified URLs, each loaded 3× per address family on fresh connections with httptrace. Redirects are followed (per family) and reported; success requires a complete 2xx body (Content-Length checked). The median run is shown, with min–max. Single resources, not full page loads; conclusions drawn from them are at most 'suspected'."},
+	{"Download outcomes", "complete-verified = whole body received and equal to the declared Content-Length; complete = body ended cleanly but no length was declared (chunked/streamed), so completeness cannot be verified by size; sampled = deliberately stopped at the per-response limit (the request worked; the remainder was not downloaded); budget-limited = skipped or cut short by the scan data budget (not tested, not a failure); failed = error status, interrupted or short transfer. Sizes are bytes as transferred (gzip is requested and not decompressed)."},
+	{"Data usage", "Counts HTTP response-body bytes of the website, captive-portal and public-IP tests, including every repetition, both address families and redirect hops (redirect bodies are not downloaded). It is not total network usage: DNS/DoH, TLS and protocol overhead, ping, traceroute and NTP are not counted. Low Data Mode: 1 sample, 512 KiB per response, 10 MiB per scan, enforced by a shared reservation-based budget."},
 	{"Path overview", "Findings are grouped into device → Wi-Fi/LAN → router → internet path → DNS → websites. A layer's status is its worst fail/warn/pass finding; a layer with none is 'not tested', never healthy."},
 	{"Confidence", "Findings carry confidence: confirmed (independent checks agree), suspected (another cause is possible — alternatives are listed), inconclusive (evidence missing or contradictory). Treat suspected/inconclusive findings as leads, not facts."},
 	{"Direct path", "All DNS tests bypass the OS resolver and any HTTP proxy and talk to the exact IP being tested, so each result reflects that server and path only."},
@@ -696,4 +708,43 @@ func probeCell(p *model.Probe) string {
 // JSON renders the report as indented JSON.
 func JSON(r *model.Report) ([]byte, error) {
 	return json.MarshalIndent(r, "", "  ")
+}
+
+func bytesText(n int64) string {
+	switch {
+	case n >= 1<<20:
+		return fmt.Sprintf("%.1f MiB", float64(n)/(1<<20))
+	case n >= 1<<10:
+		return fmt.Sprintf("%.0f KiB", float64(n)/(1<<10))
+	}
+	return fmt.Sprintf("%d B", n)
+}
+
+func budgetText(n int64) string {
+	if n <= 0 {
+		return "none (per-response limits only)"
+	}
+	return bytesText(n)
+}
+
+func dataLine(d model.DataUsage) string {
+	mode := "Standard / High Data"
+	if d.Mode == "low-data" {
+		mode = "Low Data Mode (website timing confidence reduced)"
+	}
+	return fmt.Sprintf("%s — %s of HTTP test downloads in %d requests; scan budget %s", mode, bytesText(d.HTTPBodyBytes), d.HTTPRequests, budgetText(d.ScanBudgetBytes))
+}
+
+func outcomeText(w model.WebTiming) string {
+	switch w.Outcome {
+	case model.OutcomeVerified:
+		return "complete (length verified)"
+	case model.OutcomeComplete:
+		return "complete (no declared length to verify)"
+	case model.OutcomeSampled:
+		return "limited sample — not a full download"
+	case model.OutcomeBudget:
+		return "not tested — scan data budget reached"
+	}
+	return w.Outcome
 }

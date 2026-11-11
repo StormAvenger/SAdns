@@ -151,6 +151,12 @@ func (a *az) coverage() []string {
 	if !r.Options.Traceroute {
 		g = append(g, "traceroute disabled by option")
 	}
+	if r.Data.Mode == "low-data" {
+		g = append(g, fmt.Sprintf("Low Data Mode: %d website sample per address family, response bodies capped at %d KiB, scan HTTP budget %d MiB — website timing confidence reduced", r.Data.WebSamples, r.Data.BaselineLimitBytes>>10, r.Data.ScanBudgetBytes>>20))
+	}
+	if r.Data.BudgetLimited > 0 {
+		g = append(g, fmt.Sprintf("%d website request(s) skipped or cut short because the scan data budget was reached", r.Data.BudgetLimited))
+	}
 	if !r.Options.Encrypted {
 		sig("DoT/DoH tests disabled by option")
 	}

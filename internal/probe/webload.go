@@ -31,11 +31,8 @@ var webSites = []string{
 
 const (
 	// MaxCustomURLs bounds user-specified website tests per scan.
-	MaxCustomURLs  = 5
-	maxRedirects   = 5
-	baselineBody   = 512 << 10 // read at most this much from baseline sites
-	customBody     = 20 << 20  // and this much from user-specified URLs (images, downloads)
-	webSampleCount = 3
+	MaxCustomURLs = 5
+	maxRedirects  = 5
 )
 
 // NormalizeURL validates a user-supplied website/resource address.
@@ -122,12 +119,9 @@ func (e *Engine) webLoad(ctx context.Context, rawURL string, custom bool, conn m
 	// One up-front lookup: this is the DNS time a first visit experiences.
 	_, dnsMS, err := lookupFamily(ctx, host, 4)
 	if err != nil {
-		return []model.WebTiming{{URL: rawURL, Host: host, Custom: custom, DNSMS: dnsMS, Runs: 1, Error: "DNS lookup failed: " + err.Error()}}
+		return []model.WebTiming{{URL: rawURL, Host: host, Custom: custom, DNSMS: dnsMS, Runs: 1, FailedRuns: 1, Outcome: model.OutcomeFailed, Error: "DNS lookup failed: " + err.Error()}}
 	}
-	samples := webSampleCount
-	if e.cfg.Quick {
-		samples = 2
-	}
+	samples := e.pol.WebSamples
 	var res []model.WebTiming
 	for _, fam := range []int{4, 6} {
 		if (fam == 4 && (!e.cfg.IPv4 || !conn.IPv4.Working)) || (fam == 6 && (!e.cfg.IPv6 || !conn.IPv6.Working)) {
@@ -138,7 +132,12 @@ func (e *Engine) webLoad(ctx context.Context, rawURL string, custom bool, conn m
 		}
 		var runs []model.WebTiming
 		for i := 0; i < samples && ctx.Err() == nil; i++ {
-			runs = append(runs, e.fetchFollow(ctx, rawURL, fam, custom))
+			r := e.fetchFollow(ctx, rawURL, fam, custom)
+			e.meter.mark(r.Outcome)
+			runs = append(runs, r)
+			if r.Outcome == model.OutcomeBudget {
+				break // budget used up: further repetitions would be skipped too
+			}
 			sleepCtx(ctx, 150*time.Millisecond)
 		}
 		if len(runs) == 0 {
@@ -154,33 +153,54 @@ func (e *Engine) webLoad(ctx context.Context, rawURL string, custom bool, conn m
 
 // summarizeRuns picks the run with the median wall-clock time among the
 // successful ones as the representative (so its phases belong together and
-// do add up), and keeps every run's total and error.
+// do add up), and keeps every run's total and error. Runs stopped by the
+// scan data budget are neither successes nor failures.
 func summarizeRuns(runs []model.WebTiming) model.WebTiming {
 	var ok []model.WebTiming
 	var firstErr string
+	var failed, limited, sampled int
+	var bytesAll int64
 	rep := runs[0]
+	var totals []float64
 	for _, r := range runs {
-		rep.RunTotalsMS = append(rep.RunTotalsMS, r.ElapsedMS)
-		if r.OK {
+		totals = append(totals, r.ElapsedMS)
+		bytesAll += r.Bytes
+		switch {
+		case r.OK:
 			ok = append(ok, r)
-		} else if firstErr == "" {
-			firstErr = r.Error
+			if r.Outcome == model.OutcomeSampled {
+				sampled++
+			}
+		case r.Outcome == model.OutcomeBudget:
+			limited++
+		default:
+			failed++
+			if firstErr == "" {
+				firstErr = r.Error
+			}
 		}
 	}
-	totals := rep.RunTotalsMS
 	if len(ok) > 0 {
 		sort.Slice(ok, func(i, j int) bool { return ok[i].ElapsedMS < ok[j].ElapsedMS })
 		rep = ok[len(ok)/2]
-		rep.RunTotalsMS = totals
 		rep.MinElapsedMS, rep.MaxElapsedMS = ok[0].ElapsedMS, ok[len(ok)-1].ElapsedMS
-	}
-	rep.Runs, rep.OKRuns = len(runs), len(ok)
-	rep.OK = len(ok) == len(runs)
-	if !rep.OK {
-		rep.Error = firstErr
-		if len(ok) > 0 {
-			rep.Error = fmt.Sprintf("%d of %d attempts failed: %s", len(runs)-len(ok), len(runs), firstErr)
+	} else if failed > 0 {
+		for _, r := range runs {
+			if r.Outcome != model.OutcomeBudget {
+				rep = r
+				break
+			}
 		}
+	}
+	rep.RunTotalsMS = totals
+	rep.Runs, rep.OKRuns, rep.FailedRuns, rep.LimitedRuns, rep.SampledRuns, rep.BytesAllRuns = len(runs), len(ok), failed, limited, sampled, bytesAll
+	rep.OK = failed == 0 && len(ok) > 0
+	rep.Error = ""
+	switch {
+	case failed > 0 && len(ok) > 0:
+		rep.Error = fmt.Sprintf("%d of %d attempts failed: %s", failed, len(runs), firstErr)
+	case failed > 0:
+		rep.Error = firstErr
 	}
 	return rep
 }
@@ -190,9 +210,9 @@ func summarizeRuns(runs []model.WebTiming) model.WebTiming {
 // phases are those of the final response; time spent on redirect hops is
 // reported separately and included in the wall-clock total.
 func (e *Engine) fetchFollow(ctx context.Context, rawURL string, fam int, custom bool) model.WebTiming {
-	limit := int64(baselineBody)
+	limit := e.pol.BaselineBodyLimit
 	if custom {
-		limit = customBody
+		limit = e.pol.CustomBodyLimit
 	}
 	start := time.Now()
 	cur := rawURL
@@ -213,6 +233,10 @@ func (e *Engine) fetchFollow(ctx context.Context, rawURL string, fam int, custom
 			}
 			break
 		}
+		if e.meter.exhausted() {
+			w = model.WebTiming{Outcome: model.OutcomeBudget}
+			break
+		}
 		var next string
 		w, next = e.fetchTimed(ctx, cur, ip, limit)
 		if next == "" {
@@ -221,12 +245,12 @@ func (e *Engine) fetchFollow(ctx context.Context, rawURL string, fam int, custom
 		redirects++
 		redirectMS += w.ElapsedMS
 		if redirects > maxRedirects {
-			w.OK, w.Error = false, fmt.Sprintf("more than %d redirects", maxRedirects)
+			w.OK, w.Outcome, w.Error = false, model.OutcomeFailed, fmt.Sprintf("more than %d redirects", maxRedirects)
 			break
 		}
 		nu, err := u.Parse(next)
 		if err != nil || (nu.Scheme != "http" && nu.Scheme != "https") {
-			w.OK, w.Error = false, "unusable redirect target "+next
+			w.OK, w.Outcome, w.Error = false, model.OutcomeFailed, "unusable redirect target "+next
 			break
 		}
 		cur = nu.String()
@@ -236,6 +260,9 @@ func (e *Engine) fetchFollow(ctx context.Context, rawURL string, fam int, custom
 		w.FinalURL = cur
 	}
 	w.ElapsedMS = ms(time.Since(start))
+	if w.Outcome == "" {
+		w.Outcome = model.OutcomeFailed
+	}
 	return w
 }
 
@@ -278,6 +305,11 @@ func (e *Engine) fetchTimed(ctx context.Context, rawURL string, ip netip.Addr, l
 		return w, ""
 	}
 	req.Header.Set("User-Agent", "SAdns web timing (+https://github.com/StormAvenger/SAdns)")
+	// Ask for gzip explicitly, like a browser. Setting the header ourselves
+	// stops Go from transparently decompressing, so the bytes counted are the
+	// bytes transferred and Content-Length can be verified against them.
+	req.Header.Set("Accept-Encoding", "gzip")
+	e.meter.request()
 	start := time.Now()
 	resp, err := cl.Do(req)
 	tmu.Lock()
@@ -298,34 +330,66 @@ func (e *Engine) fetchTimed(ctx context.Context, rawURL string, ip netip.Addr, l
 		return w, ""
 	}
 	defer resp.Body.Close()
+	w.Reachable = true
 	w.Status, w.Proto = resp.StatusCode, resp.Proto
+	w.HTTPOK = resp.StatusCode >= 200 && resp.StatusCode <= 299
+	w.ContentLength, w.ContentEncoding = resp.ContentLength, resp.Header.Get("Content-Encoding")
 	if resp.TLS != nil {
 		w.TLSVersion = tls.VersionName(resp.TLS.Version)
 	}
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		if loc := resp.Header.Get("Location"); loc != "" {
 			w.ElapsedMS = ms(time.Since(start))
-			return w, loc
+			return w, loc // redirect bodies are not downloaded
 		}
 	}
-	n, cerr := io.Copy(io.Discard, io.LimitReader(resp.Body, limit))
+
+	// Read the body within the per-response sample limit and the scan budget.
+	clen := resp.ContentLength
+	want := limit
+	if clen >= 0 && clen < want {
+		want = clen
+	}
+	grant := e.meter.reserve(want)
+	n, cerr := io.CopyN(io.Discard, resp.Body, grant)
+	complete := false
+	switch {
+	case cerr == io.EOF: // body ended before the allowance did
+		cerr, complete = nil, true
+	case cerr == nil && clen >= 0:
+		complete = n == clen
+	case cerr == nil:
+		// Length unknown (chunked/streamed) and the whole allowance was used.
+		// Finding out whether more follows would mean reading past the
+		// allowance, so this is conservatively treated as not complete.
+	}
+	e.meter.settle(grant, n)
 	end := time.Now()
 	w.Bytes = n
 	w.DownloadMS = span(fb, end)
 	w.ElapsedMS = ms(end.Sub(start))
-	w.Truncated = n >= limit
 	if w.DownloadMS >= 50 && n >= 100<<10 {
 		w.RateKbps = round2(float64(n) * 8 / 1000 / (w.DownloadMS / 1000))
 	}
 	switch {
 	case cerr != nil:
-		w.Error = fmt.Sprintf("transfer interrupted after %d bytes: %v", n, cerr)
-	case !w.Truncated && resp.ContentLength >= 0 && n != resp.ContentLength:
-		w.Error = fmt.Sprintf("incomplete body: received %d of %d bytes", n, resp.ContentLength)
-	case resp.StatusCode < 200 || resp.StatusCode > 299:
-		w.Error = fmt.Sprintf("HTTP %d", resp.StatusCode)
+		w.Outcome, w.Error = model.OutcomeFailed, fmt.Sprintf("transfer interrupted after %d bytes: %v", n, cerr)
+	case complete && clen >= 0 && n != clen:
+		w.Outcome, w.Error = model.OutcomeFailed, fmt.Sprintf("incomplete body: received %d of %d bytes", n, clen)
+	case !w.HTTPOK:
+		w.Outcome, w.Error = model.OutcomeFailed, fmt.Sprintf("HTTP %d", resp.StatusCode)
+	case complete && clen >= 0:
+		w.Outcome, w.OK = model.OutcomeVerified, true
+	case complete:
+		w.Outcome, w.OK = model.OutcomeComplete, true
+	case grant < want:
+		// The scan budget, not the sample limit, stopped this download:
+		// neither a success nor a network failure.
+		w.Outcome = model.OutcomeBudget
 	default:
-		w.OK = true
+		// Deliberate sample: the request succeeded and timing is valid, but
+		// the rest of the resource was not downloaded or verified.
+		w.Outcome, w.OK = model.OutcomeSampled, true
 	}
 	return w, ""
 }

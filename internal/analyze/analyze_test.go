@@ -266,3 +266,41 @@ func TestCoverageGapsDowngradeHealthy(t *testing.T) {
 		}
 	}
 }
+
+// Low Data Mode lowers confidence of website findings and never turns
+// budget-limited rows into failures.
+func TestLowDataModeAnalysis(t *testing.T) {
+	r := baseReport()
+	r.Resolvers = []model.ResolverResult{res("System DNS #1", "system", "192.168.1.1:53", 4, true, ok)}
+	r.Data = model.DataUsage{Mode: "low-data", ConfidenceAffected: true, WebSamples: 1, BaselineLimitBytes: 512 << 10, ScanBudgetBytes: 10 << 20, BudgetLimited: 1}
+	slow := okWeb("https://a/", 4)
+	slow.Runs, slow.OKRuns, slow.TLSMS, slow.TotalMS = 1, 1, 900, 970
+	slow2 := slow
+	slow2.URL = "https://b/"
+	r.Web = []model.WebTiming{slow, slow2, {URL: "https://c/", Family: 4, Runs: 1, LimitedRuns: 1, Outcome: model.OutcomeBudget}}
+	Run(r)
+	f := find(r, "WEB-TLS-SLOW")
+	if f == nil || f.Confidence != "inconclusive" || !strings.Contains(f.Detail, "Low Data Mode") {
+		t.Fatalf("%+v", f)
+	}
+	if find(r, "WEB-PARTIAL") != nil || find(r, "WEB-FAIL") != nil || !has(r, "WEB-BUDGET", model.Info) {
+		t.Fatalf("budget-limited row treated as failure: %+v", r.Findings)
+	}
+	gaps := strings.Join(r.Summary.Coverage, "|")
+	if !strings.Contains(gaps, "Low Data Mode") || !strings.Contains(gaps, "budget") {
+		t.Fatalf("coverage: %s", gaps)
+	}
+}
+
+func TestSampledDownloadsAreNotCalledComplete(t *testing.T) {
+	r := baseReport()
+	r.Resolvers = []model.ResolverResult{res("System DNS #1", "system", "192.168.1.1:53", 4, true, ok)}
+	w := okWeb("https://a/big", 4)
+	w.Outcome, w.SampledRuns = model.OutcomeSampled, 3
+	r.Web = []model.WebTiming{w}
+	Run(r)
+	f := find(r, "WEB-OK")
+	if f == nil || !strings.Contains(f.Title, "size-limited samples") || strings.Contains(f.Title, "loaded completely") {
+		t.Fatalf("%+v", f)
+	}
+}

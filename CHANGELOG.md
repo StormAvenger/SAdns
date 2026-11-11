@@ -16,6 +16,9 @@ First public pre-release.
 
 - Website tests: 3 runs per resource and family, measured wall-clock totals, redirects followed and reported, completeness (2xx + full body) required, transfer rate, user-specified URLs (`--url`).
 
+- Low Data Mode (`--low-data`, UI toggle, off by default): 1 website sample, 512 KiB per response, 10 MiB shared HTTP budget per scan; standard mode unchanged. Central `DataPolicy`.
+- Download outcomes: complete-verified / complete / sampled / budget-limited / failed — hitting the sample limit is no longer reported as a full download. HTTP data usage reported in UI, Markdown and JSON.
+
 ### Analysis & reports
 - Path overview (device → LAN → router → internet → DNS → websites) with an explicit "not tested" state; verdict *partial* when nothing failed but significant areas were untested.
 - Findings carry evidence, a fix and a confidence (confirmed / suspected / inconclusive); coverage gaps list what could not be tested.
