@@ -79,6 +79,7 @@ func dataServer() *httptest.Server {
 		z.Write(big)
 		z.Close()
 		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Length", strconv.Itoa(b.Len()))
 		w.Write(b.Bytes())
 	})
 	mux.HandleFunc("/redir", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/big", http.StatusFound) })
