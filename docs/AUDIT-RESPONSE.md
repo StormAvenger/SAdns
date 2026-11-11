@@ -66,7 +66,7 @@ Audit of commit `b7ef524`. Each item was checked against the code before changin
 |---|---|---|
 | No published release | **Pending owner** | Publishing creates a public download page, so it is left to the repository owner: **Actions → Release → Run workflow**. |
 | Manual-release instructions wrong | **Fixed (audit correct)** | The README described a `workflow_dispatch` trigger that had not actually been committed. It now exists. |
-| macOS CI | **Fixed** | Matrix: Ubuntu, Windows, macOS. |
+| macOS CI | **Fixed** | Matrix: Ubuntu, Windows, macOS. Its first run caught a release blocker: binaries linked by Go 1.22 abort on current macOS (`dyld: missing LC_UUID`). CI and releases now build with the latest stable Go; go.mod requires 1.24+, verified by a separate minimum-version job. |
 | Race detection | **Fixed** | `go test -race` in CI — it immediately found a real race in HTTP/2 trace hooks, now fixed. |
 | Pinned actions, permissions | **Fixed** | Actions pinned to commit SHAs; minimal `permissions`. |
 | Attestation / checksums | **Fixed** | Build-provenance attestation and SHA-256 sums on every release; code signing deferred. |

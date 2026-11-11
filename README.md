@@ -112,7 +112,7 @@ All DNS tests talk directly to the IP under test, so each result reflects that s
 
 ## Building from source
 
-Requires Go 1.22+.
+Requires Go 1.24+ (release binaries are built with the latest stable Go, which current macOS versions require).
 
 ```bash
 git clone https://github.com/StormAvenger/SAdns && cd SAdns
