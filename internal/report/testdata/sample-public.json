@@ -1,0 +1,3122 @@
+{
+  "schema": "sadns/report/v1",
+  "tool": {
+    "name": "SAdns",
+    "version": "dev",
+    "commit": "none",
+    "built": "unknown",
+    "repo": "https://github.com/StormAvenger/SAdns"
+  },
+  "started_at": "2026-11-11T09:11:38.283026882-08:00",
+  "finished_at": "2026-11-11T09:11:55.893322332-08:00",
+  "duration_sec": 17.61,
+  "options": {
+    "samples": 3,
+    "timeout_ms": 2000,
+    "providers": null,
+    "extra_resolvers": null,
+    "quick": true,
+    "low_data": true,
+    "traceroute": false,
+    "encrypted": true,
+    "ipv4": true,
+    "ipv6": true
+  },
+  "summary": {
+    "verdict": "problems",
+    "headline": "DNS traffic is being transparently intercepted",
+    "pass": 3,
+    "info": 11,
+    "warn": 10,
+    "fail": 6,
+    "layers": [
+      {
+        "key": "device",
+        "name": "This device",
+        "status": "warn",
+        "note": "Some OS lookups failed (4 of 5)"
+      },
+      {
+        "key": "lan",
+        "name": "Wi-Fi / LAN",
+        "status": "unknown",
+        "note": "not tested"
+      },
+      {
+        "key": "gateway",
+        "name": "Router",
+        "status": "unknown",
+        "note": "not tested"
+      },
+      {
+        "key": "internet",
+        "name": "Internet path",
+        "status": "warn",
+        "note": "Plain HTTP connectivity checks failed (+1 more)"
+      },
+      {
+        "key": "dns",
+        "name": "DNS",
+        "status": "fail",
+        "note": "DNS traffic is being transparently intercepted (+11 more)"
+      },
+      {
+        "key": "web",
+        "name": "Websites",
+        "status": "warn",
+        "note": "3 of 4 website tests failed or were unreliable"
+      }
+    ],
+    "coverage_gaps": [
+      "6 IPv6 public-resolver addresses skipped (no working IPv6)",
+      "ping / packet-loss tests: ping command not available",
+      "path MTU (IPv4): ping command not available",
+      "traceroute disabled by option",
+      "Low Data Mode: 1 website sample per address family, response bodies capped at 512 KiB, scan HTTP budget 10 MiB — website timing confidence reduced",
+      "OS-path lookups on Linux/BSD use Go's resolver (resolv.conf + hosts), not glibc nsswitch modules such as mdns or nss-resolve"
+    ]
+  },
+  "findings": [
+    {
+      "id": "INTERCEPT-BOGON",
+      "severity": "fail",
+      "category": "security",
+      "title": "DNS traffic is being transparently intercepted",
+      "detail": "A query sent to an address that cannot host a DNS server (TEST-NET / documentation range) received an answer. A router, ISP or security appliance is redirecting all port-53 traffic to its own resolver, so the public resolvers you think you are using are not the ones answering.",
+      "evidence": [
+        "DNS to non-existent server 198.51.100.53: a reply came back from an address that cannot run DNS — port 53 traffic is being transparently intercepted/redirected",
+        "DNS to non-existent server 2001:db8::53: no reply (no-ipv6) — no transparent DNS interception detected on this path"
+      ],
+      "recommendation": "If it is your own router (e.g. a 'force DNS' / DNS redirect NAT rule, UniFi Content Filtering, Pi-hole interception) this may be intentional. Otherwise use DoH/DoT to bypass, and ask the ISP.",
+      "confidence": "confirmed",
+      "layer": "dns"
+    },
+    {
+      "id": "INTERCEPT-PUBLIC",
+      "severity": "fail",
+      "category": "security",
+      "title": "Queries to public resolvers are answered by someone else",
+      "detail": "Several independent checks show that queries addressed to well-known public resolvers are answered by a different system. This is DNS redirection somewhere between this host and the internet.",
+      "evidence": [
+        "System DNS #1 (Google Public DNS) 8.8.8.8:53 returned NXDOMAIN for example.com (a public resolver always resolves it)",
+        "System DNS #2 (Google Public DNS) 8.8.4.4:53 returned NXDOMAIN for example.com (a public resolver always resolves it)",
+        "Cloudflare primary IPv4 1.1.1.1:53 returned NXDOMAIN for example.com (a public resolver always resolves it)",
+        "Quad9 primary IPv4 9.9.9.9:53 returned NXDOMAIN for example.com (a public resolver always resolves it)",
+        "OpenDNS (Cisco) primary IPv4 208.67.222.222:53 returned NXDOMAIN for example.com (a public resolver always resolves it)",
+        "Control D (free, unfiltered) primary IPv4 76.76.2.0:53 returned NXDOMAIN for example.com (a public resolver always resolves it)"
+      ],
+      "recommendation": "Check the router for DNS redirect/'force local DNS' rules. To bypass an ISP-level redirect, use encrypted DNS (DoH/DoT).",
+      "confidence": "confirmed",
+      "layer": "dns"
+    },
+    {
+      "id": "SYS-BAD-ANSWER",
+      "severity": "fail",
+      "category": "dns",
+      "title": "DNS server 8.8.8.8:53 answers, but not correctly",
+      "detail": "It responds, yet returned NXDOMAIN for example.com — a name that always exists. The resolver is broken, filtering far too aggressively, or its upstream is failing. Apps will see 'site not found' errors.",
+      "evidence": [
+        "UDP/53 query (A example.com) @ 8.8.8.8:53 — WARN: server answered with NXDOMAIN and no usable address",
+        "AAAA query @ 8.8.8.8:53 — WARN: AAAA query returned NXDOMAIN"
+      ],
+      "recommendation": "Check the resolver's upstream/forwarder configuration and blocklists; test it against another resolver.",
+      "layer": "dns"
+    },
+    {
+      "id": "SYS-TC-BROKEN",
+      "severity": "fail",
+      "category": "dns",
+      "title": "Truncated answers cannot be recovered via System DNS #1 (Google Public DNS) (8.8.8.8:53)",
+      "detail": "large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers",
+      "evidence": [
+        "Truncation → TCP fallback @ 8.8.8.8:53 — FAIL: large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers"
+      ],
+      "recommendation": "Allow TCP/53 and check that no middlebox strips the TC flag.",
+      "layer": "dns"
+    },
+    {
+      "id": "SYS-BAD-ANSWER",
+      "severity": "fail",
+      "category": "dns",
+      "title": "DNS server 8.8.4.4:53 answers, but not correctly",
+      "detail": "It responds, yet returned NXDOMAIN for example.com — a name that always exists. The resolver is broken, filtering far too aggressively, or its upstream is failing. Apps will see 'site not found' errors.",
+      "evidence": [
+        "UDP/53 query (A example.com) @ 8.8.4.4:53 — WARN: server answered with NXDOMAIN and no usable address",
+        "AAAA query @ 8.8.4.4:53 — WARN: AAAA query returned NXDOMAIN"
+      ],
+      "recommendation": "Check the resolver's upstream/forwarder configuration and blocklists; test it against another resolver.",
+      "layer": "dns"
+    },
+    {
+      "id": "SYS-TC-BROKEN",
+      "severity": "fail",
+      "category": "dns",
+      "title": "Truncated answers cannot be recovered via System DNS #2 (Google Public DNS) (8.8.4.4:53)",
+      "detail": "large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers",
+      "evidence": [
+        "Truncation → TCP fallback @ 8.8.4.4:53 — FAIL: large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers"
+      ],
+      "recommendation": "Allow TCP/53 and check that no middlebox strips the TC flag.",
+      "layer": "dns"
+    },
+    {
+      "id": "HTTP-FAIL",
+      "severity": "warn",
+      "category": "connectivity",
+      "title": "Plain HTTP connectivity checks failed",
+      "detail": "The OS-style connectivity probes could not complete. Devices may report 'No internet'.",
+      "evidence": [
+        "Google (Android/Chrome) http://connectivitycheck.gstatic.com/generate_204 → 0 request failed: Get \"http://connectivitycheck.gstatic.com/generate_204\": dial tcp: lookup connectivitycheck.gstatic.com on 8.8.8.8:53: no such host (1 ms)",
+        "Apple (iOS/macOS) http://captive.apple.com/hotspot-detect.html → 0 request failed: Get \"http://captive.apple.com/hotspot-detect.html\": dial tcp: lookup captive.apple.com on 8.8.8.8:53: no such host (1 ms)",
+        "Microsoft (Windows NCSI) http://www.msftconnecttest.com/connecttest.txt → 0 request failed: Get \"http://www.msftconnecttest.com/connecttest.txt\": dial tcp: lookup www.msftconnecttest.com on 8.8.8.8:53: no such host (1 ms)"
+      ],
+      "recommendation": "Check whether outbound TCP 80 is blocked and that these names resolve.",
+      "layer": "internet"
+    },
+    {
+      "id": "WEB-PARTIAL",
+      "severity": "warn",
+      "category": "connectivity",
+      "title": "3 of 4 website tests failed or were unreliable",
+      "detail": "Other resources loaded, so this is specific to a site, an address family or it is intermittent. A response only counts as loaded when it ends in a complete 2xx answer (redirects are followed; cut-off transfers and error statuses fail).",
+      "evidence": [
+        "https://www.google.com/generate_204: DNS lookup failed: lookup www.google.com on 8.8.8.8:53: no such host",
+        "https://www.cloudflare.com/cdn-cgi/trace: DNS lookup failed: lookup www.cloudflare.com on 8.8.8.8:53: no such host",
+        "https://www.wikipedia.org/: DNS lookup failed: lookup www.wikipedia.org on 8.8.8.8:53: no such host",
+        "github.com IPv4: DNS 1 · connect 0 · TLS 2 · first byte 66 · transfer 0 ms; measured 70 ms end-to-end (1/1 runs ok, range 69–69 ms, HTTP/2.0, 1971 bytes, complete, length verified)"
+      ],
+      "recommendation": "Compare which family/site fails; re-run to see whether it is intermittent.",
+      "layer": "web"
+    },
+    {
+      "id": "NTP-BLOCKED",
+      "severity": "warn",
+      "category": "system",
+      "title": "Network time (NTP, UDP 123) is unreachable",
+      "detail": "No NTP server answered. Devices that rely on NTP (routers, IoT, Linux servers, cameras) will drift; large clock errors break TLS, DoT/DoH and DNSSEC.",
+      "evidence": [
+        "time.cloudflare.com (162.159.200.1): no reply on UDP/123 (read udp 192.0.2.2:45150-\u003e162.159.200.1:123: read: connection refused)",
+        "time.google.com (216.239.35.0): no reply on UDP/123 (read udp 192.0.2.2:36211-\u003e216.239.35.0:123: read: connection refused)"
+      ],
+      "recommendation": "Allow outbound UDP 123, or point devices at the router's NTP server.",
+      "layer": "internet"
+    },
+    {
+      "id": "OS-RESOLVE-PARTIAL",
+      "severity": "warn",
+      "category": "dns",
+      "title": "Some OS lookups failed (4 of 5)",
+      "detail": "Name resolution through the OS resolver is intermittent or partially blocked.",
+      "evidence": [
+        "example.com [baseline (A + AAAA)]: lookup example.com on 8.8.8.8:53: no such host (1 ms)",
+        "www.google.com [popular dual-stack site]: lookup www.google.com on 8.8.8.8:53: no such host (1 ms)",
+        "cloudflare.com [popular dual-stack site]: lookup cloudflare.com on 8.8.8.8:53: no such host (1 ms)",
+        "github.com [IPv4-only site]: 140.82.114.3 (23 ms)",
+        "ipv6.google.com [IPv6-only name]: lookup ipv6.google.com on 8.8.8.8:53: no such host (1 ms)",
+        "www.wikipedia.org [popular dual-stack site]: lookup www.wikipedia.org on 8.8.8.8:53: no such host (1 ms)",
+        "localhost [local name (hosts file)]: 127.0.0.1 (1 ms)",
+        "sadns-nx-r6s89k7ht9qkyf.com [non-existent name (must fail)]: lookup sadns-nx-r6s89k7ht9qkyf.com on 8.8.8.8:53: no such host (1 ms)"
+      ],
+      "recommendation": "Compare the failing names with the per-resolver results.",
+      "layer": "device"
+    },
+    {
+      "id": "SYS-NO-TCP",
+      "severity": "warn",
+      "category": "dns",
+      "title": "DNS over TCP fails for System DNS #1 (Google Public DNS) (8.8.8.8:53)",
+      "detail": "Answers that do not fit in UDP (DNSSEC, many TXT/HTTPS records, large CNAME chains) must be retried over TCP. Those lookups will fail.",
+      "evidence": [
+        "TCP/53 query @ 8.8.8.8:53 — WARN: TCP/53 failed (refused) — responses larger than the UDP limit will fail [refused: dial tcp 8.8.8.8:53: connect: connection refused]"
+      ],
+      "recommendation": "Allow TCP/53 to the resolver (firewall) and ensure the DNS service listens on TCP.",
+      "layer": "dns"
+    },
+    {
+      "id": "SYS-NO-TCP",
+      "severity": "warn",
+      "category": "dns",
+      "title": "DNS over TCP fails for System DNS #2 (Google Public DNS) (8.8.4.4:53)",
+      "detail": "Answers that do not fit in UDP (DNSSEC, many TXT/HTTPS records, large CNAME chains) must be retried over TCP. Those lookups will fail.",
+      "evidence": [
+        "TCP/53 query @ 8.8.4.4:53 — WARN: TCP/53 failed (refused) — responses larger than the UDP limit will fail [refused: dial tcp 8.8.4.4:53: connect: connection refused]"
+      ],
+      "recommendation": "Allow TCP/53 to the resolver (firewall) and ensure the DNS service listens on TCP.",
+      "layer": "dns"
+    },
+    {
+      "id": "PUB-ENCRYPTED-BLOCKED",
+      "severity": "warn",
+      "category": "dns",
+      "title": "Encrypted DNS (DoT and DoH) does not work",
+      "detail": "All DNS-over-TLS and DNS-over-HTTPS attempts failed. Either TLS is intercepted, the clock is wrong, or these endpoints are blocked.",
+      "recommendation": "Check the TLS/clock findings and firewall rules for TCP 853/443 to the resolver IPs.",
+      "layer": "dns"
+    },
+    {
+      "id": "PUB-TCP-BLOCKED",
+      "severity": "warn",
+      "category": "dns",
+      "title": "DNS over TCP to the internet is blocked",
+      "detail": "All 7 reachable public resolvers failed over TCP/53 while UDP worked. A firewall is blocking outbound TCP port 53, which breaks large DNS answers for any resolver outside your network.",
+      "recommendation": "Allow outbound TCP/53 (at least from your router/local resolver).",
+      "layer": "dns"
+    },
+    {
+      "id": "SYS-HTTPS-RR",
+      "severity": "warn",
+      "category": "dns",
+      "title": "Modern DNS record types fail via System DNS #1 (Google Public DNS) (8.8.8.8:53)",
+      "detail": "HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back. Apple devices and Chromium query HTTPS records for every site and may stall waiting for them.",
+      "evidence": [
+        "HTTPS/SVCB record type (RFC 9460) @ 8.8.8.8:53 — WARN: HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back"
+      ],
+      "recommendation": "Update the router firmware or point clients at a resolver that handles all record types (Unbound, AdGuard Home, Pi-hole v6, or a public resolver).",
+      "layer": "dns"
+    },
+    {
+      "id": "SYS-HTTPS-RR",
+      "severity": "warn",
+      "category": "dns",
+      "title": "Modern DNS record types fail via System DNS #2 (Google Public DNS) (8.8.4.4:53)",
+      "detail": "HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back. Apple devices and Chromium query HTTPS records for every site and may stall waiting for them.",
+      "evidence": [
+        "HTTPS/SVCB record type (RFC 9460) @ 8.8.4.4:53 — WARN: HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back"
+      ],
+      "recommendation": "Update the router firmware or point clients at a resolver that handles all record types (Unbound, AdGuard Home, Pi-hole v6, or a public resolver).",
+      "layer": "dns"
+    },
+    {
+      "id": "CONN-V6-NONE",
+      "severity": "info",
+      "category": "connectivity",
+      "title": "IPv6 is not provisioned on this network",
+      "detail": "No global IPv6 address and no IPv6 default route. The network runs IPv4-only; this is not an error by itself.",
+      "recommendation": "If your ISP offers IPv6, enable it on the router WAN (usually DHCPv6 with prefix delegation) and on the LAN (SLAAC/RA). On UniFi: Network → Internet → IPv6 = DHCPv6 + Prefix Delegation, then LAN networks → IPv6 Interface Type = Prefix Delegation.",
+      "layer": "internet"
+    },
+    {
+      "id": "COVERAGE",
+      "severity": "info",
+      "category": "coverage",
+      "title": "Some checks could not run or reach a conclusion",
+      "detail": "These parts of the network were not fully tested. Treat the absence of findings in these areas as 'unknown', not 'healthy'.",
+      "evidence": [
+        "6 IPv6 public-resolver addresses skipped (no working IPv6)",
+        "ping / packet-loss tests: ping command not available",
+        "path MTU (IPv4): ping command not available",
+        "traceroute disabled by option",
+        "Low Data Mode: 1 website sample per address family, response bodies capped at 512 KiB, scan HTTP budget 10 MiB — website timing confidence reduced",
+        "OS-path lookups on Linux/BSD use Go's resolver (resolv.conf + hosts), not glibc nsswitch modules such as mdns or nss-resolve"
+      ],
+      "recommendation": "Install the missing tools (ping, traceroute) or re-run with both address families to close the gaps.",
+      "layer": "device"
+    },
+    {
+      "id": "SYS-DNSSEC-UNKNOWN",
+      "severity": "info",
+      "category": "security",
+      "title": "DNSSEC validation could not be determined for System DNS #1 (Google Public DNS) (8.8.8.8:53)",
+      "detail": "The evidence was missing or contradictory (see the DNSSEC test detail). A SERVFAIL on its own is not treated as proof of validation.",
+      "evidence": [
+        "DNSSEC validation @ 8.8.8.8:53 — INFO: the signed control domain did not resolve, so validation cannot be judged [signed control: NXDOMAIN; bogus zone: NXDOMAIN; bogus zone with CD=1: no answer (timeout)]"
+      ],
+      "confidence": "inconclusive",
+      "layer": "dns"
+    },
+    {
+      "id": "SYS-DNSSEC-UNKNOWN",
+      "severity": "info",
+      "category": "security",
+      "title": "DNSSEC validation could not be determined for System DNS #2 (Google Public DNS) (8.8.4.4:53)",
+      "detail": "The evidence was missing or contradictory (see the DNSSEC test detail). A SERVFAIL on its own is not treated as proof of validation.",
+      "evidence": [
+        "DNSSEC validation @ 8.8.4.4:53 — INFO: the signed control domain did not resolve, so validation cannot be judged [signed control: NXDOMAIN; bogus zone: NXDOMAIN; bogus zone with CD=1: NXDOMAIN]"
+      ],
+      "confidence": "inconclusive",
+      "layer": "dns"
+    },
+    {
+      "id": "GW-NO-DNS",
+      "severity": "info",
+      "category": "dns",
+      "title": "Default gateway 192.0.2.1:53 does not answer DNS",
+      "detail": "The router does not run a DNS forwarder on this address (or blocks it). This is only a problem if you expect clients to use the router for DNS.",
+      "evidence": [
+        "UDP/53 query (A example.com) @ 192.0.2.1:53 — FAIL: no response over UDP/53 (refused) [refused: read udp 192.0.2.2:52619-\u003e192.0.2.1:53: read: connection refused]"
+      ],
+      "layer": "gateway"
+    },
+    {
+      "id": "CANARY-SIGNALS",
+      "severity": "info",
+      "category": "dns",
+      "title": "Your network signals devices not to bypass its DNS",
+      "detail": "Canary domains are answered negatively, so browsers/OSes keep using this resolver instead of their own encrypted DNS or relay. Typical for Pi-hole, AdGuard Home, UniFi content filtering and parental controls.",
+      "evidence": [
+        "Firefox auto-DoH disabled by: System DNS #1 (Google Public DNS) (8.8.8.8:53)",
+        "iCloud Private Relay blocked by: System DNS #1 (Google Public DNS) (8.8.8.8:53), System DNS #2 (Google Public DNS) (8.8.4.4:53)"
+      ],
+      "recommendation": "Expected if you filter DNS; otherwise check the resolver's blocklists.",
+      "layer": "gateway"
+    },
+    {
+      "id": "LOCAL-ENC-PORTS",
+      "severity": "info",
+      "category": "dns",
+      "title": "Local resolver has encrypted-DNS ports open",
+      "detail": "TCP 853 (DoT) or 443 (DoH or a web UI) answer on the resolver address.",
+      "evidence": [
+        "System DNS #1 (Google Public DNS) (8.8.8.8:53): TCP [443]",
+        "System DNS #2 (Google Public DNS) (8.8.4.4:53): TCP [443]"
+      ],
+      "layer": "gateway"
+    },
+    {
+      "id": "LOCAL-NAMES",
+      "severity": "info",
+      "category": "dns",
+      "title": "Some local names / reverse lookups do not resolve",
+      "detail": "Local hostname or reverse (PTR) lookups failed. Not a fault, but it makes logs and device lists show IPs instead of names, and some apps (SSH, SMB, printers) resolve slowly while waiting.",
+      "evidence": [
+        "[lan-ip-1] (reverse lookup of this computer's IP (docker0)): no PTR record",
+        "192.0.2.1 (reverse lookup of the default gateway): no PTR record",
+        "vm (this computer's own name) → 127.0.0.1"
+      ],
+      "recommendation": "Enable 'register DHCP hostnames in DNS' / local domain on the router (UniFi: Settings → Networks → Domain Name).",
+      "layer": "lan"
+    },
+    {
+      "id": "PING-UNAVAILABLE",
+      "severity": "info",
+      "category": "routing",
+      "title": "Ping tests skipped",
+      "detail": "The system ping command is not available.",
+      "layer": "internet"
+    },
+    {
+      "id": "MTU-UNKNOWN-V4",
+      "severity": "info",
+      "category": "routing",
+      "title": "Path MTU could not be measured (IPv4)",
+      "detail": "ping command not available",
+      "layer": "internet"
+    },
+    {
+      "id": "ROUTE-CHOICES",
+      "severity": "info",
+      "category": "routing",
+      "title": "Route selection for DNS servers",
+      "detail": "Which interface and source address the OS picks for each resolver.",
+      "evidence": [
+        "8.8.8.8 (System DNS #1 (Google Public DNS)): via eth0, source 192.0.2.2, on-link=false",
+        "8.8.4.4 (System DNS #2 (Google Public DNS)): via eth0, source 192.0.2.2, on-link=false",
+        "192.0.2.1 (Gateway (IPv4)): via eth0, source 192.0.2.2, on-link=true",
+        "1.1.1.1 (Internet (IPv4 reference)): via eth0, source 192.0.2.2, on-link=false",
+        "2606:4700:4700::1111 (Internet (IPv6 reference)): no route — dial udp [2606:4700:4700::1111]:53: socket: address family not supported by protocol"
+      ],
+      "layer": "device"
+    },
+    {
+      "id": "CONN-V4-OK",
+      "severity": "pass",
+      "category": "connectivity",
+      "title": "IPv4 internet connectivity works",
+      "detail": "TCP connections to public anycast hosts succeeded over IPv4.",
+      "evidence": [
+        "TCP 1.1.1.1:443 (Cloudflare): connected in 0.4 ms",
+        "TCP 8.8.8.8:443 (Google): connected in 0.4 ms",
+        "TCP 9.9.9.9:443 (Quad9): connected in 0.3 ms"
+      ],
+      "layer": "internet"
+    },
+    {
+      "id": "PUB-OK-V4",
+      "severity": "pass",
+      "category": "dns",
+      "title": "All public resolvers reachable over IPv4 (7/7)",
+      "detail": "",
+      "layer": "dns"
+    },
+    {
+      "id": "FAILOVER-OK",
+      "severity": "pass",
+      "category": "failover",
+      "title": "DNS failover available (2 working resolvers)",
+      "detail": "Estimate from documented OS behaviour, not measured: glibc stub: tries servers in order with timeout:2s attempts:3 (rotate=false). A dead primary adds ~2s to EVERY lookup.",
+      "layer": "dns"
+    }
+  ],
+  "system": {
+    "os": "linux",
+    "os_version": "Ubuntu 24.04.5 LTS (kernel 6.18.44-fc-v378)",
+    "arch": "amd64",
+    "hostname": "vm",
+    "interfaces": [
+      {
+        "name": "lo",
+        "index": 1,
+        "mtu": 65536,
+        "up": true,
+        "loopback": true,
+        "likely_vpn": false,
+        "flags": "up|loopback|running",
+        "addrs": [
+          {
+            "cidr": "127.0.0.1/8",
+            "ip": "127.0.0.1",
+            "family": 4,
+            "scope": "loopback"
+          }
+        ]
+      },
+      {
+        "name": "ifb0",
+        "index": 2,
+        "mtu": 1500,
+        "hwaddr": "[mac]",
+        "up": false,
+        "loopback": false,
+        "likely_vpn": false,
+        "flags": "broadcast",
+        "addrs": null
+      },
+      {
+        "name": "ifb1",
+        "index": 3,
+        "mtu": 1500,
+        "hwaddr": "[mac]",
+        "up": false,
+        "loopback": false,
+        "likely_vpn": false,
+        "flags": "broadcast",
+        "addrs": null
+      },
+      {
+        "name": "eth0",
+        "index": 4,
+        "mtu": 1400,
+        "hwaddr": "[mac]",
+        "up": true,
+        "loopback": false,
+        "likely_vpn": false,
+        "flags": "up|broadcast|multicast|running",
+        "addrs": [
+          {
+            "cidr": "192.0.2.2/24",
+            "ip": "192.0.2.2",
+            "family": 4,
+            "scope": "documentation"
+          }
+        ]
+      },
+      {
+        "name": "docker0",
+        "index": 5,
+        "mtu": 1500,
+        "hwaddr": "[mac]",
+        "up": true,
+        "loopback": false,
+        "likely_vpn": false,
+        "flags": "up|broadcast|multicast",
+        "addrs": [
+          {
+            "cidr": "[lan-ip-1]/16",
+            "ip": "[lan-ip-1]",
+            "family": 4,
+            "scope": "private"
+          }
+        ]
+      }
+    ],
+    "default_gateways": [
+      {
+        "family": 4,
+        "gateway": "192.0.2.1",
+        "interface": "eth0",
+        "source": "/proc/net/route"
+      }
+    ],
+    "resolvers": [
+      {
+        "addr": "8.8.8.8",
+        "source": "/etc/resolv.conf"
+      },
+      {
+        "addr": "8.8.4.4",
+        "source": "/etc/resolv.conf"
+      }
+    ],
+    "stub_resolvers": null,
+    "split_resolvers": null,
+    "search_domains": null,
+    "resolver_options": {
+      "attempts": "3",
+      "timeout": "2"
+    },
+    "resolver_manager": "/etc/resolv.conf (glibc-style stub)",
+    "raw": [
+      {
+        "command": "cat /etc/resolv.conf",
+        "output": "nameserver 8.8.8.8\nnameserver 8.8.4.4\noptions timeout:2 attempts:3",
+        "duration": ""
+      }
+    ]
+  },
+  "connectivity": {
+    "ipv4": {
+      "has_address": true,
+      "has_global_address": true,
+      "has_default_route": true,
+      "working": true,
+      "probes": [
+        {
+          "target": "1.1.1.1:443",
+          "name": "Cloudflare",
+          "family": 4,
+          "ok": true,
+          "rtt_ms": 0.36,
+          "local_addr": "192.0.2.2:47942"
+        },
+        {
+          "target": "8.8.8.8:443",
+          "name": "Google",
+          "family": 4,
+          "ok": true,
+          "rtt_ms": 0.36,
+          "local_addr": "192.0.2.2:49926"
+        },
+        {
+          "target": "9.9.9.9:443",
+          "name": "Quad9",
+          "family": 4,
+          "ok": true,
+          "rtt_ms": 0.29,
+          "local_addr": "192.0.2.2:44142"
+        }
+      ]
+    },
+    "ipv6": {
+      "has_address": false,
+      "has_global_address": false,
+      "has_default_route": false,
+      "working": false,
+      "probes": [
+        {
+          "target": "[2606:4700:4700::1111]:443",
+          "name": "Cloudflare",
+          "family": 6,
+          "ok": false,
+          "rtt_ms": 0,
+          "error": "dial tcp [2606:4700:4700::1111]:443: socket: address family not supported by protocol",
+          "error_class": "no-ipv6"
+        },
+        {
+          "target": "[2001:4860:4860::8888]:443",
+          "name": "Google",
+          "family": 6,
+          "ok": false,
+          "rtt_ms": 0.01,
+          "error": "dial tcp [2001:4860:4860::8888]:443: socket: address family not supported by protocol",
+          "error_class": "no-ipv6"
+        },
+        {
+          "target": "[2620:fe::fe]:443",
+          "name": "Quad9",
+          "family": 6,
+          "ok": false,
+          "rtt_ms": 0.02,
+          "error": "dial tcp [2620:fe::fe]:443: socket: address family not supported by protocol",
+          "error_class": "no-ipv6"
+        }
+      ]
+    }
+  },
+  "public_ip": {
+    "ipv4": {
+      "ok": false,
+      "method": "https://one.one.one.one/cdn-cgi/trace via 1.1.1.1",
+      "clock_known": false,
+      "error": "HTTP 403"
+    },
+    "ipv6": {
+      "ok": false,
+      "method": "https://one.one.one.one/cdn-cgi/trace via 2606:4700:4700::1111",
+      "clock_known": false,
+      "error": "Get \"https://one.one.one.one/cdn-cgi/trace\": dial tcp [2606:4700:4700::1111]:443: socket: address family not supported by protocol"
+    },
+    "cgnat": false
+  },
+  "os_lookups": [
+    {
+      "name": "example.com",
+      "purpose": "baseline (A + AAAA)",
+      "ok": false,
+      "has_v4": false,
+      "has_v6": false,
+      "ms": 0.93,
+      "error": "lookup example.com on 8.8.8.8:53: no such host",
+      "expected": "v4+v6",
+      "resolved": false
+    },
+    {
+      "name": "www.google.com",
+      "purpose": "popular dual-stack site",
+      "ok": false,
+      "has_v4": false,
+      "has_v6": false,
+      "ms": 0.99,
+      "error": "lookup www.google.com on 8.8.8.8:53: no such host",
+      "expected": "v4+v6",
+      "resolved": false
+    },
+    {
+      "name": "cloudflare.com",
+      "purpose": "popular dual-stack site",
+      "ok": false,
+      "has_v4": false,
+      "has_v6": false,
+      "ms": 0.98,
+      "error": "lookup cloudflare.com on 8.8.8.8:53: no such host",
+      "expected": "v4+v6",
+      "resolved": false
+    },
+    {
+      "name": "github.com",
+      "purpose": "IPv4-only site",
+      "ok": true,
+      "addrs": [
+        "140.82.114.3"
+      ],
+      "has_v4": true,
+      "has_v6": false,
+      "ms": 23.21,
+      "expected": "v4",
+      "resolved": true
+    },
+    {
+      "name": "ipv6.google.com",
+      "purpose": "IPv6-only name",
+      "ok": false,
+      "has_v4": false,
+      "has_v6": false,
+      "ms": 0.98,
+      "error": "lookup ipv6.google.com on 8.8.8.8:53: no such host",
+      "expected": "v6",
+      "resolved": false
+    },
+    {
+      "name": "www.wikipedia.org",
+      "purpose": "popular dual-stack site",
+      "ok": false,
+      "has_v4": false,
+      "has_v6": false,
+      "ms": 0.96,
+      "error": "lookup www.wikipedia.org on 8.8.8.8:53: no such host",
+      "expected": "v4+v6",
+      "resolved": false
+    },
+    {
+      "name": "localhost",
+      "purpose": "local name (hosts file)",
+      "ok": true,
+      "addrs": [
+        "127.0.0.1"
+      ],
+      "has_v4": true,
+      "has_v6": false,
+      "ms": 0.6,
+      "expected": "local",
+      "resolved": true
+    },
+    {
+      "name": "sadns-nx-r6s89k7ht9qkyf.com",
+      "purpose": "non-existent name (must fail)",
+      "ok": true,
+      "has_v4": false,
+      "has_v6": false,
+      "ms": 0.94,
+      "error": "lookup sadns-nx-r6s89k7ht9qkyf.com on 8.8.8.8:53: no such host",
+      "expected": "nxdomain",
+      "resolved": false
+    }
+  ],
+  "dual_stack": null,
+  "resolvers": [
+    {
+      "label": "System DNS #1 (Google Public DNS)",
+      "provider": "Google Public DNS",
+      "provider_key": "google",
+      "role": "system",
+      "addr": "8.8.8.8:53",
+      "family": 4,
+      "primary": true,
+      "interface": "eth0",
+      "local_addr": "192.0.2.2:55825",
+      "on_link": false,
+      "reachable": true,
+      "latency": {
+        "sent": 3,
+        "received": 3,
+        "loss_pct": 0,
+        "min_ms": 0.36,
+        "avg_ms": 0.93,
+        "median_ms": 1.01,
+        "p90_ms": 1.42,
+        "max_ms": 1.42,
+        "jitter_ms": 0.86
+      },
+      "dnssec": "inconclusive",
+      "dnssec_confidence": "inconclusive",
+      "https_rr": "error",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "unknown",
+      "caching": "unknown",
+      "cookies": "no",
+      "case_0x20": "preserved",
+      "canary_doh": "disables-doh",
+      "canary_relay": "blocks-relay",
+      "encrypted_ports_open": [
+        443
+      ],
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP/53 query (A example.com)",
+          "status": "warn",
+          "detail": "server answered with NXDOMAIN and no usable address",
+          "query": "example.com A",
+          "rtt_ms": 0.79,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "tcp",
+          "name": "TCP/53 query",
+          "status": "warn",
+          "detail": "TCP/53 failed (refused) — responses larger than the UDP limit will fail",
+          "query": "example.com A",
+          "rtt_ms": 0.32,
+          "error": "refused: dial tcp 8.8.8.8:53: connect: connection refused"
+        },
+        {
+          "id": "udp_aaaa",
+          "name": "AAAA query",
+          "status": "warn",
+          "detail": "AAAA query returned NXDOMAIN",
+          "query": "example.com AAAA",
+          "rtt_ms": 0.6,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "latency",
+          "name": "Latency (cached queries)",
+          "status": "pass",
+          "detail": "3/3 answered, median 1.0 ms, p90 1.4 ms, jitter 0.9 ms"
+        },
+        {
+          "id": "edns",
+          "name": "EDNS0 support",
+          "status": "pass",
+          "detail": "EDNS0, server UDP payload 8192"
+        },
+        {
+          "id": "tc_fallback",
+          "name": "Truncation → TCP fallback",
+          "status": "fail",
+          "detail": "large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers",
+          "query": ". DNSKEY +dnssec bufsize=512",
+          "rtt_ms": 0.58,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "edns_large",
+          "name": "Large UDP response (\u003e1 KB)",
+          "status": "pass",
+          "detail": "received 28-byte UDP response intact",
+          "query": ". DNSKEY +dnssec bufsize=4096",
+          "rtt_ms": 0.6,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "dnssec",
+          "name": "DNSSEC validation",
+          "status": "info",
+          "detail": "the signed control domain did not resolve, so validation cannot be judged [signed control: NXDOMAIN; bogus zone: NXDOMAIN; bogus zone with CD=1: no answer (timeout)]",
+          "query": "ietf.org (signed) / dnssec-failed.org (bogus), with and without CD",
+          "rtt_ms": 0.3,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra"
+        },
+        {
+          "id": "nxdomain",
+          "name": "NXDOMAIN integrity",
+          "status": "info",
+          "detail": "inconclusive: this resolver also fails the control name example.com",
+          "query": "sadns-nx-iz6qam5wtpd65y.com A",
+          "rtt_ms": 1.16,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 56
+        },
+        {
+          "id": "filtering",
+          "name": "Ad/tracker filtering",
+          "status": "info",
+          "detail": "unknown — 5/5 blocked via NXDOMAIN×5 (pagead2.googlesyndication.com: NXDOMAIN; ad.doubleclick.net: NXDOMAIN; googleadservices.com: NXDOMAIN; adservice.google.com: NXDOMAIN; static.ads-twitter.com: NXDOMAIN; inconclusive: the control name example.com does not resolve either)",
+          "query": "pagead2.googlesyndication.com, ad.doubleclick.net, googleadservices.com, adservice.google.com, static.ads-twitter.com"
+        },
+        {
+          "id": "identity",
+          "name": "Server identity (CHAOS)",
+          "status": "info",
+          "detail": "no identity disclosed"
+        },
+        {
+          "id": "egress",
+          "name": "Upstream egress address",
+          "status": "info",
+          "detail": "could not determine (echo names did not answer)"
+        },
+        {
+          "id": "case_0x20",
+          "name": "Query-name case preserved (0x20)",
+          "status": "pass",
+          "detail": "question echoed with identical letter case",
+          "query": "exAMPLe.COm. A",
+          "rtt_ms": 0.79,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "edns_version",
+          "name": "EDNS version negotiation",
+          "status": "info",
+          "detail": "answered NXDOMAIN instead of BADVERS (ignores EDNS version — harmless today, non-compliant)",
+          "query": "example.com A +edns=1",
+          "rtt_ms": 0.81,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "cookie",
+          "name": "DNS Cookies (RFC 7873)",
+          "status": "info",
+          "detail": "no cookie support (common for home routers; not a fault)",
+          "query": "example.com A +cookie, then +cookie=\u003cserver cookie\u003e",
+          "rtt_ms": 0.23,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "https_rr",
+          "name": "HTTPS/SVCB record type (RFC 9460)",
+          "status": "warn",
+          "detail": "HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back",
+          "query": "cloudflare.com HTTPS (known to exist)",
+          "rtt_ms": 0.51,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 43
+        },
+        {
+          "id": "burst",
+          "name": "Parallel query bursts",
+          "status": "pass",
+          "detail": "5-burst 5/5, 20-burst 20/20 and 20/20 (slowest 4.8 ms)",
+          "query": "example.com A ×5, ×20, ×20",
+          "rtt_ms": 4.76
+        },
+        {
+          "id": "rebind",
+          "name": "DNS rebinding protection",
+          "status": "info",
+          "detail": "inconclusive: control names did not resolve (nip.io control: NXDOMAIN; sslip.io control: no answer (timeout))"
+        },
+        {
+          "id": "ddr",
+          "name": "Discovery of Designated Resolvers (DDR)",
+          "status": "info",
+          "detail": "no encrypted resolver advertised",
+          "query": "_dns.resolver.arpa SVCB",
+          "rtt_ms": 0.27,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 47
+        },
+        {
+          "id": "canary_doh",
+          "name": "Browser-DoH canary (use-application-dns.net)",
+          "status": "info",
+          "detail": "negative answer — Firefox will NOT auto-enable DNS-over-HTTPS on this network (typical for Pi-hole/filtering setups)",
+          "query": "use-application-dns.net A",
+          "rtt_ms": 0.32,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 52
+        },
+        {
+          "id": "canary_relay",
+          "name": "iCloud Private Relay canary (mask.icloud.com)",
+          "status": "info",
+          "detail": "negative answer — Apple devices are told Private Relay is unavailable on this network",
+          "query": "mask.icloud.com A",
+          "rtt_ms": 0.33,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 44
+        },
+        {
+          "id": "enc_ports",
+          "name": "Encrypted-DNS ports on this resolver",
+          "status": "info",
+          "detail": "open: TCP 443 (443 may just be the router's web UI)",
+          "query": "TCP 853 (DoT), 443 (DoH)"
+        },
+        {
+          "id": "cache",
+          "name": "Uncached lookups \u0026 caching",
+          "status": "info",
+          "detail": "inconclusive: the wildcard test names did not resolve (nip.io: NXDOMAIN; sslip.io: NXDOMAIN)"
+        },
+        {
+          "id": "dot",
+          "name": "DNS-over-TLS (853)",
+          "status": "warn",
+          "detail": "DoT failed (refused)",
+          "query": "tls://8.8.8.8:853 (dns.google)",
+          "rtt_ms": 0.22,
+          "error": "refused: dial tcp 8.8.8.8:853: connect: connection refused"
+        },
+        {
+          "id": "doh",
+          "name": "DNS-over-HTTPS (443)",
+          "status": "warn",
+          "detail": "DoH failed (http)",
+          "query": "https://dns.google/dns-query (via 8.8.8.8:443)",
+          "rtt_ms": 2.18,
+          "error": "http: HTTP 403"
+        }
+      ]
+    },
+    {
+      "label": "System DNS #2 (Google Public DNS)",
+      "provider": "Google Public DNS",
+      "provider_key": "google",
+      "role": "system",
+      "addr": "8.8.4.4:53",
+      "family": 4,
+      "primary": false,
+      "interface": "eth0",
+      "local_addr": "192.0.2.2:56342",
+      "on_link": false,
+      "reachable": true,
+      "latency": {
+        "sent": 3,
+        "received": 3,
+        "loss_pct": 0,
+        "min_ms": 0.43,
+        "avg_ms": 0.96,
+        "median_ms": 0.97,
+        "p90_ms": 1.48,
+        "max_ms": 1.48,
+        "jitter_ms": 0.8
+      },
+      "dnssec": "inconclusive",
+      "dnssec_confidence": "inconclusive",
+      "https_rr": "error",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "unknown",
+      "caching": "unknown",
+      "cookies": "no",
+      "case_0x20": "preserved",
+      "canary_doh": "unknown",
+      "canary_relay": "blocks-relay",
+      "encrypted_ports_open": [
+        443
+      ],
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP/53 query (A example.com)",
+          "status": "warn",
+          "detail": "server answered with NXDOMAIN and no usable address",
+          "query": "example.com A",
+          "rtt_ms": 0.69,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "tcp",
+          "name": "TCP/53 query",
+          "status": "warn",
+          "detail": "TCP/53 failed (refused) — responses larger than the UDP limit will fail",
+          "query": "example.com A",
+          "rtt_ms": 0.48,
+          "error": "refused: dial tcp 8.8.4.4:53: connect: connection refused"
+        },
+        {
+          "id": "udp_aaaa",
+          "name": "AAAA query",
+          "status": "warn",
+          "detail": "AAAA query returned NXDOMAIN",
+          "query": "example.com AAAA",
+          "rtt_ms": 0.42,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "latency",
+          "name": "Latency (cached queries)",
+          "status": "pass",
+          "detail": "3/3 answered, median 1.0 ms, p90 1.5 ms, jitter 0.8 ms"
+        },
+        {
+          "id": "edns",
+          "name": "EDNS0 support",
+          "status": "pass",
+          "detail": "EDNS0, server UDP payload 8192"
+        },
+        {
+          "id": "tc_fallback",
+          "name": "Truncation → TCP fallback",
+          "status": "fail",
+          "detail": "large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers",
+          "query": ". DNSKEY +dnssec bufsize=512",
+          "rtt_ms": 0.69,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "edns_large",
+          "name": "Large UDP response (\u003e1 KB)",
+          "status": "pass",
+          "detail": "received 28-byte UDP response intact",
+          "query": ". DNSKEY +dnssec bufsize=4096",
+          "rtt_ms": 0.42,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "dnssec",
+          "name": "DNSSEC validation",
+          "status": "info",
+          "detail": "the signed control domain did not resolve, so validation cannot be judged [signed control: NXDOMAIN; bogus zone: NXDOMAIN; bogus zone with CD=1: NXDOMAIN]",
+          "query": "ietf.org (signed) / dnssec-failed.org (bogus), with and without CD",
+          "rtt_ms": 0.24,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra"
+        },
+        {
+          "id": "nxdomain",
+          "name": "NXDOMAIN integrity",
+          "status": "warn",
+          "detail": "query failed (timeout)",
+          "query": "sadns-nx-xnjyi0jtgaiufl.com A",
+          "rtt_ms": 2001.32,
+          "error": "timeout: read udp 192.0.2.2:43689-\u003e8.8.4.4:53: i/o timeout"
+        },
+        {
+          "id": "filtering",
+          "name": "Ad/tracker filtering",
+          "status": "info",
+          "detail": "unknown — 5/5 blocked via NXDOMAIN×5 (pagead2.googlesyndication.com: NXDOMAIN; ad.doubleclick.net: NXDOMAIN; googleadservices.com: NXDOMAIN; adservice.google.com: NXDOMAIN; static.ads-twitter.com: NXDOMAIN; inconclusive: the control name example.com does not resolve either)",
+          "query": "pagead2.googlesyndication.com, ad.doubleclick.net, googleadservices.com, adservice.google.com, static.ads-twitter.com"
+        },
+        {
+          "id": "identity",
+          "name": "Server identity (CHAOS)",
+          "status": "info",
+          "detail": "no identity disclosed"
+        },
+        {
+          "id": "egress",
+          "name": "Upstream egress address",
+          "status": "info",
+          "detail": "could not determine (echo names did not answer)"
+        },
+        {
+          "id": "case_0x20",
+          "name": "Query-name case preserved (0x20)",
+          "status": "pass",
+          "detail": "question echoed with identical letter case",
+          "query": "EXamPle.com. A",
+          "rtt_ms": 0.31,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "edns_version",
+          "name": "EDNS version negotiation",
+          "status": "info",
+          "detail": "answered NXDOMAIN instead of BADVERS (ignores EDNS version — harmless today, non-compliant)",
+          "query": "example.com A +edns=1",
+          "rtt_ms": 2,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "cookie",
+          "name": "DNS Cookies (RFC 7873)",
+          "status": "info",
+          "detail": "no cookie support (common for home routers; not a fault)",
+          "query": "example.com A +cookie, then +cookie=\u003cserver cookie\u003e",
+          "rtt_ms": 1.04,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "https_rr",
+          "name": "HTTPS/SVCB record type (RFC 9460)",
+          "status": "warn",
+          "detail": "HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back",
+          "query": "cloudflare.com HTTPS (known to exist)",
+          "rtt_ms": 0.49,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 43
+        },
+        {
+          "id": "burst",
+          "name": "Parallel query bursts",
+          "status": "pass",
+          "detail": "5-burst 5/5, 20-burst 20/20 and 20/20 (slowest 1.3 ms)",
+          "query": "example.com A ×5, ×20, ×20",
+          "rtt_ms": 1.28
+        },
+        {
+          "id": "rebind",
+          "name": "DNS rebinding protection",
+          "status": "info",
+          "detail": "inconclusive: control names did not resolve (nip.io control: NXDOMAIN; sslip.io control: NXDOMAIN)"
+        },
+        {
+          "id": "ddr",
+          "name": "Discovery of Designated Resolvers (DDR)",
+          "status": "info",
+          "detail": "no encrypted resolver advertised",
+          "query": "_dns.resolver.arpa SVCB",
+          "rtt_ms": 0.22,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 47
+        },
+        {
+          "id": "canary_doh",
+          "name": "Browser-DoH canary (use-application-dns.net)",
+          "status": "info",
+          "detail": "no response (timeout)",
+          "query": "use-application-dns.net A",
+          "rtt_ms": 2001.08,
+          "error": "timeout: read udp 192.0.2.2:52321-\u003e8.8.4.4:53: i/o timeout"
+        },
+        {
+          "id": "canary_relay",
+          "name": "iCloud Private Relay canary (mask.icloud.com)",
+          "status": "info",
+          "detail": "negative answer — Apple devices are told Private Relay is unavailable on this network",
+          "query": "mask.icloud.com A",
+          "rtt_ms": 0.66,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 44
+        },
+        {
+          "id": "enc_ports",
+          "name": "Encrypted-DNS ports on this resolver",
+          "status": "info",
+          "detail": "open: TCP 443 (443 may just be the router's web UI)",
+          "query": "TCP 853 (DoT), 443 (DoH)"
+        },
+        {
+          "id": "cache",
+          "name": "Uncached lookups \u0026 caching",
+          "status": "info",
+          "detail": "inconclusive: the wildcard test names did not resolve (nip.io: NXDOMAIN; sslip.io: NXDOMAIN)"
+        },
+        {
+          "id": "dot",
+          "name": "DNS-over-TLS (853)",
+          "status": "warn",
+          "detail": "DoT failed (refused)",
+          "query": "tls://8.8.4.4:853 (dns.google)",
+          "rtt_ms": 0.08,
+          "error": "refused: dial tcp 8.8.4.4:853: connect: connection refused"
+        },
+        {
+          "id": "doh",
+          "name": "DNS-over-HTTPS (443)",
+          "status": "warn",
+          "detail": "DoH failed (http)",
+          "query": "https://dns.google/dns-query (via 8.8.4.4:443)",
+          "rtt_ms": 2.21,
+          "error": "http: HTTP 403"
+        }
+      ]
+    },
+    {
+      "label": "Gateway (IPv4)",
+      "provider": "Default gateway",
+      "provider_key": "",
+      "role": "gateway",
+      "addr": "192.0.2.1:53",
+      "family": 4,
+      "primary": false,
+      "interface": "eth0",
+      "local_addr": "192.0.2.2:52619",
+      "on_link": true,
+      "reachable": false,
+      "latency": {
+        "sent": 0,
+        "received": 0,
+        "loss_pct": 0,
+        "min_ms": 0,
+        "avg_ms": 0,
+        "median_ms": 0,
+        "p90_ms": 0,
+        "max_ms": 0,
+        "jitter_ms": 0
+      },
+      "dnssec": "n/a",
+      "https_rr": "",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "",
+      "caching": "",
+      "cookies": "",
+      "case_0x20": "",
+      "canary_doh": "",
+      "canary_relay": "",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP/53 query (A example.com)",
+          "status": "fail",
+          "detail": "no response over UDP/53 (refused)",
+          "query": "example.com A",
+          "rtt_ms": 0.54,
+          "error": "refused: read udp 192.0.2.2:52619-\u003e192.0.2.1:53: read: connection refused"
+        },
+        {
+          "id": "tcp",
+          "name": "TCP/53 query",
+          "status": "warn",
+          "detail": "TCP/53 failed (refused) — responses larger than the UDP limit will fail",
+          "query": "example.com A",
+          "rtt_ms": 0.74,
+          "error": "refused: dial tcp 192.0.2.1:53: connect: connection refused"
+        },
+        {
+          "id": "udp_aaaa",
+          "name": "udp_aaaa",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "latency",
+          "name": "latency",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "edns",
+          "name": "edns",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "tc_fallback",
+          "name": "tc_fallback",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "edns_large",
+          "name": "edns_large",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "dnssec",
+          "name": "dnssec",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "nxdomain",
+          "name": "nxdomain",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "filtering",
+          "name": "filtering",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "identity",
+          "name": "identity",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "egress",
+          "name": "egress",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "case_0x20",
+          "name": "case_0x20",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "edns_version",
+          "name": "edns_version",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "https_rr",
+          "name": "https_rr",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "burst",
+          "name": "burst",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        },
+        {
+          "id": "rebind",
+          "name": "rebind",
+          "status": "skip",
+          "detail": "resolver unreachable"
+        }
+      ]
+    },
+    {
+      "label": "Cloudflare primary IPv4",
+      "provider": "Cloudflare",
+      "provider_key": "cloudflare",
+      "role": "public",
+      "addr": "1.1.1.1:53",
+      "family": 4,
+      "primary": true,
+      "interface": "eth0",
+      "local_addr": "192.0.2.2:51868",
+      "on_link": false,
+      "reachable": true,
+      "latency": {
+        "sent": 3,
+        "received": 3,
+        "loss_pct": 0,
+        "min_ms": 0.42,
+        "avg_ms": 0.89,
+        "median_ms": 0.96,
+        "p90_ms": 1.29,
+        "max_ms": 1.29,
+        "jitter_ms": 0.71
+      },
+      "dnssec": "inconclusive",
+      "dnssec_confidence": "inconclusive",
+      "https_rr": "error",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "unknown",
+      "caching": "unknown",
+      "cookies": "no",
+      "case_0x20": "preserved",
+      "canary_doh": "unknown",
+      "canary_relay": "unknown",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP/53 query (A example.com)",
+          "status": "warn",
+          "detail": "server answered with NXDOMAIN and no usable address",
+          "query": "example.com A",
+          "rtt_ms": 0.67,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "tcp",
+          "name": "TCP/53 query",
+          "status": "warn",
+          "detail": "TCP/53 failed (refused) — responses larger than the UDP limit will fail",
+          "query": "example.com A",
+          "rtt_ms": 0.12,
+          "error": "refused: dial tcp 1.1.1.1:53: connect: connection refused"
+        },
+        {
+          "id": "udp_aaaa",
+          "name": "AAAA query",
+          "status": "warn",
+          "detail": "AAAA query returned NXDOMAIN",
+          "query": "example.com AAAA",
+          "rtt_ms": 0.81,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "latency",
+          "name": "Latency (cached queries)",
+          "status": "pass",
+          "detail": "3/3 answered, median 1.0 ms, p90 1.3 ms, jitter 0.7 ms"
+        },
+        {
+          "id": "edns",
+          "name": "EDNS0 support",
+          "status": "pass",
+          "detail": "EDNS0, server UDP payload 8192"
+        },
+        {
+          "id": "tc_fallback",
+          "name": "Truncation → TCP fallback",
+          "status": "fail",
+          "detail": "large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers",
+          "query": ". DNSKEY +dnssec bufsize=512",
+          "rtt_ms": 0.56,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "edns_large",
+          "name": "Large UDP response (\u003e1 KB)",
+          "status": "pass",
+          "detail": "received 28-byte UDP response intact",
+          "query": ". DNSKEY +dnssec bufsize=4096",
+          "rtt_ms": 0.52,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "dnssec",
+          "name": "DNSSEC validation",
+          "status": "info",
+          "detail": "the signed control domain did not resolve, so validation cannot be judged [signed control: NXDOMAIN; bogus zone: NXDOMAIN; bogus zone with CD=1: no answer (timeout)]",
+          "query": "ietf.org (signed) / dnssec-failed.org (bogus), with and without CD",
+          "rtt_ms": 0.23,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra"
+        },
+        {
+          "id": "nxdomain",
+          "name": "NXDOMAIN integrity",
+          "status": "info",
+          "detail": "inconclusive: this resolver also fails the control name example.com",
+          "query": "sadns-nx-evm1fpdmvdn6ed.com A",
+          "rtt_ms": 0.78,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 56
+        },
+        {
+          "id": "filtering",
+          "name": "Ad/tracker filtering",
+          "status": "info",
+          "detail": "unknown — 5/5 blocked via NXDOMAIN×5 (pagead2.googlesyndication.com: NXDOMAIN; ad.doubleclick.net: NXDOMAIN; googleadservices.com: NXDOMAIN; adservice.google.com: NXDOMAIN; static.ads-twitter.com: NXDOMAIN; inconclusive: the control name example.com does not resolve either)",
+          "query": "pagead2.googlesyndication.com, ad.doubleclick.net, googleadservices.com, adservice.google.com, static.ads-twitter.com"
+        },
+        {
+          "id": "identity",
+          "name": "Server identity (CHAOS)",
+          "status": "info",
+          "detail": "no identity disclosed"
+        },
+        {
+          "id": "egress",
+          "name": "Upstream egress address",
+          "status": "info",
+          "detail": "could not determine (echo names did not answer)"
+        },
+        {
+          "id": "case_0x20",
+          "name": "Query-name case preserved (0x20)",
+          "status": "pass",
+          "detail": "question echoed with identical letter case",
+          "query": "eXaMpLE.CoM. A",
+          "rtt_ms": 0.51,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "edns_version",
+          "name": "EDNS version negotiation",
+          "status": "info",
+          "detail": "answered NXDOMAIN instead of BADVERS (ignores EDNS version — harmless today, non-compliant)",
+          "query": "example.com A +edns=1",
+          "rtt_ms": 1.94,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "cookie",
+          "name": "DNS Cookies (RFC 7873)",
+          "status": "info",
+          "detail": "no cookie support (common for home routers; not a fault)",
+          "query": "example.com A +cookie, then +cookie=\u003cserver cookie\u003e",
+          "rtt_ms": 1.31,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "https_rr",
+          "name": "HTTPS/SVCB record type (RFC 9460)",
+          "status": "warn",
+          "detail": "HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back",
+          "query": "cloudflare.com HTTPS (known to exist)",
+          "rtt_ms": 0.33,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 43
+        },
+        {
+          "id": "burst",
+          "name": "Parallel query bursts",
+          "status": "info",
+          "detail": "5-burst 5/5, 20-burst 18/20 and 20/20 (slowest 1.3 ms) — occasional loss under load",
+          "query": "example.com A ×5, ×20, ×20",
+          "rtt_ms": 1.3
+        },
+        {
+          "id": "rebind",
+          "name": "DNS rebinding protection",
+          "status": "info",
+          "detail": "inconclusive: control names did not resolve (nip.io control: NXDOMAIN; sslip.io control: NXDOMAIN)"
+        },
+        {
+          "id": "cache",
+          "name": "Uncached lookups \u0026 caching",
+          "status": "info",
+          "detail": "inconclusive: the wildcard test names did not resolve (nip.io: NXDOMAIN; sslip.io: NXDOMAIN)"
+        },
+        {
+          "id": "dot",
+          "name": "DNS-over-TLS (853)",
+          "status": "warn",
+          "detail": "DoT failed (refused)",
+          "query": "tls://1.1.1.1:853 (one.one.one.one)",
+          "rtt_ms": 0.12,
+          "error": "refused: dial tcp 1.1.1.1:853: connect: connection refused"
+        },
+        {
+          "id": "doh",
+          "name": "DNS-over-HTTPS (443)",
+          "status": "warn",
+          "detail": "DoH failed (http)",
+          "query": "https://cloudflare-dns.com/dns-query (via 1.1.1.1:443)",
+          "rtt_ms": 2.3,
+          "error": "http: HTTP 403"
+        }
+      ]
+    },
+    {
+      "label": "Cloudflare primary IPv6",
+      "provider": "Cloudflare",
+      "provider_key": "cloudflare",
+      "role": "public",
+      "addr": "[2606:4700:4700::1111]:53",
+      "family": 6,
+      "primary": true,
+      "on_link": false,
+      "reachable": false,
+      "latency": {
+        "sent": 0,
+        "received": 0,
+        "loss_pct": 0,
+        "min_ms": 0,
+        "avg_ms": 0,
+        "median_ms": 0,
+        "p90_ms": 0,
+        "max_ms": 0,
+        "jitter_ms": 0
+      },
+      "dnssec": "n/a",
+      "https_rr": "",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "",
+      "caching": "",
+      "cookies": "",
+      "case_0x20": "",
+      "canary_doh": "",
+      "canary_relay": "",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP query (A)",
+          "status": "skip",
+          "detail": "skipped: this host has no working IPv6 internet connectivity"
+        }
+      ]
+    },
+    {
+      "label": "Google Public DNS primary IPv6",
+      "provider": "Google Public DNS",
+      "provider_key": "google",
+      "role": "public",
+      "addr": "[2001:4860:4860::8888]:53",
+      "family": 6,
+      "primary": true,
+      "on_link": false,
+      "reachable": false,
+      "latency": {
+        "sent": 0,
+        "received": 0,
+        "loss_pct": 0,
+        "min_ms": 0,
+        "avg_ms": 0,
+        "median_ms": 0,
+        "p90_ms": 0,
+        "max_ms": 0,
+        "jitter_ms": 0
+      },
+      "dnssec": "n/a",
+      "https_rr": "",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "",
+      "caching": "",
+      "cookies": "",
+      "case_0x20": "",
+      "canary_doh": "",
+      "canary_relay": "",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP query (A)",
+          "status": "skip",
+          "detail": "skipped: this host has no working IPv6 internet connectivity"
+        }
+      ]
+    },
+    {
+      "label": "Quad9 primary IPv4",
+      "provider": "Quad9",
+      "provider_key": "quad9",
+      "role": "public",
+      "addr": "9.9.9.9:53",
+      "family": 4,
+      "primary": true,
+      "interface": "eth0",
+      "local_addr": "192.0.2.2:54967",
+      "on_link": false,
+      "reachable": true,
+      "latency": {
+        "sent": 3,
+        "received": 3,
+        "loss_pct": 0,
+        "min_ms": 0.46,
+        "avg_ms": 0.67,
+        "median_ms": 0.58,
+        "p90_ms": 0.98,
+        "max_ms": 0.98,
+        "jitter_ms": 0.32
+      },
+      "dnssec": "inconclusive",
+      "dnssec_confidence": "inconclusive",
+      "https_rr": "error",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "unknown",
+      "caching": "unknown",
+      "cookies": "no",
+      "case_0x20": "preserved",
+      "canary_doh": "unknown",
+      "canary_relay": "unknown",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP/53 query (A example.com)",
+          "status": "warn",
+          "detail": "server answered with NXDOMAIN and no usable address",
+          "query": "example.com A",
+          "rtt_ms": 0.94,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "tcp",
+          "name": "TCP/53 query",
+          "status": "warn",
+          "detail": "TCP/53 failed (refused) — responses larger than the UDP limit will fail",
+          "query": "example.com A",
+          "rtt_ms": 0.22,
+          "error": "refused: dial tcp 9.9.9.9:53: connect: connection refused"
+        },
+        {
+          "id": "udp_aaaa",
+          "name": "AAAA query",
+          "status": "warn",
+          "detail": "AAAA query returned NXDOMAIN",
+          "query": "example.com AAAA",
+          "rtt_ms": 0.7,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "latency",
+          "name": "Latency (cached queries)",
+          "status": "pass",
+          "detail": "3/3 answered, median 0.6 ms, p90 1.0 ms, jitter 0.3 ms"
+        },
+        {
+          "id": "edns",
+          "name": "EDNS0 support",
+          "status": "pass",
+          "detail": "EDNS0, server UDP payload 8192"
+        },
+        {
+          "id": "tc_fallback",
+          "name": "Truncation → TCP fallback",
+          "status": "fail",
+          "detail": "large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers",
+          "query": ". DNSKEY +dnssec bufsize=512",
+          "rtt_ms": 0.5,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "edns_large",
+          "name": "Large UDP response (\u003e1 KB)",
+          "status": "pass",
+          "detail": "received 28-byte UDP response intact",
+          "query": ". DNSKEY +dnssec bufsize=4096",
+          "rtt_ms": 0.48,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "dnssec",
+          "name": "DNSSEC validation",
+          "status": "info",
+          "detail": "the signed control domain did not resolve, so validation cannot be judged [signed control: NXDOMAIN; bogus zone: NXDOMAIN; bogus zone with CD=1: NXDOMAIN]",
+          "query": "ietf.org (signed) / dnssec-failed.org (bogus), with and without CD",
+          "rtt_ms": 0.21,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra"
+        },
+        {
+          "id": "nxdomain",
+          "name": "NXDOMAIN integrity",
+          "status": "warn",
+          "detail": "query failed (timeout)",
+          "query": "sadns-nx-o2w6jynrgd5y0w.com A",
+          "rtt_ms": 2001.22,
+          "error": "timeout: read udp 192.0.2.2:37855-\u003e9.9.9.9:53: i/o timeout"
+        },
+        {
+          "id": "filtering",
+          "name": "Ad/tracker filtering",
+          "status": "info",
+          "detail": "unknown — 5/5 blocked via NXDOMAIN×5 (pagead2.googlesyndication.com: NXDOMAIN; ad.doubleclick.net: NXDOMAIN; googleadservices.com: NXDOMAIN; adservice.google.com: NXDOMAIN; static.ads-twitter.com: NXDOMAIN; inconclusive: the control name example.com does not resolve either)",
+          "query": "pagead2.googlesyndication.com, ad.doubleclick.net, googleadservices.com, adservice.google.com, static.ads-twitter.com"
+        },
+        {
+          "id": "identity",
+          "name": "Server identity (CHAOS)",
+          "status": "info",
+          "detail": "no identity disclosed"
+        },
+        {
+          "id": "egress",
+          "name": "Upstream egress address",
+          "status": "info",
+          "detail": "could not determine (echo names did not answer)"
+        },
+        {
+          "id": "case_0x20",
+          "name": "Query-name case preserved (0x20)",
+          "status": "pass",
+          "detail": "question echoed with identical letter case",
+          "query": "eXAmpLE.COm. A",
+          "rtt_ms": 0.85,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "edns_version",
+          "name": "EDNS version negotiation",
+          "status": "info",
+          "detail": "answered NXDOMAIN instead of BADVERS (ignores EDNS version — harmless today, non-compliant)",
+          "query": "example.com A +edns=1",
+          "rtt_ms": 0.33,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "cookie",
+          "name": "DNS Cookies (RFC 7873)",
+          "status": "info",
+          "detail": "no cookie support (common for home routers; not a fault)",
+          "query": "example.com A +cookie, then +cookie=\u003cserver cookie\u003e",
+          "rtt_ms": 0.27,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "https_rr",
+          "name": "HTTPS/SVCB record type (RFC 9460)",
+          "status": "warn",
+          "detail": "HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back",
+          "query": "cloudflare.com HTTPS (known to exist)",
+          "rtt_ms": 0.31,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 43
+        },
+        {
+          "id": "burst",
+          "name": "Parallel query bursts",
+          "status": "pass",
+          "detail": "5-burst 5/5, 20-burst 20/20 and 20/20 (slowest 1.6 ms)",
+          "query": "example.com A ×5, ×20, ×20",
+          "rtt_ms": 1.65
+        },
+        {
+          "id": "rebind",
+          "name": "DNS rebinding protection",
+          "status": "info",
+          "detail": "inconclusive: control names did not resolve (nip.io control: NXDOMAIN; sslip.io control: NXDOMAIN)"
+        },
+        {
+          "id": "cache",
+          "name": "Uncached lookups \u0026 caching",
+          "status": "info",
+          "detail": "inconclusive: the wildcard test names did not resolve (nip.io: no answer (timeout); sslip.io: NXDOMAIN)"
+        },
+        {
+          "id": "dot",
+          "name": "DNS-over-TLS (853)",
+          "status": "warn",
+          "detail": "DoT failed (refused)",
+          "query": "tls://9.9.9.9:853 (dns.quad9.net)",
+          "rtt_ms": 0.3,
+          "error": "refused: dial tcp 9.9.9.9:853: connect: connection refused"
+        },
+        {
+          "id": "doh",
+          "name": "DNS-over-HTTPS (443)",
+          "status": "warn",
+          "detail": "DoH failed (http)",
+          "query": "https://dns.quad9.net/dns-query (via 9.9.9.9:443)",
+          "rtt_ms": 3.28,
+          "error": "http: HTTP 403"
+        }
+      ]
+    },
+    {
+      "label": "Quad9 primary IPv6",
+      "provider": "Quad9",
+      "provider_key": "quad9",
+      "role": "public",
+      "addr": "[2620:fe::fe]:53",
+      "family": 6,
+      "primary": true,
+      "on_link": false,
+      "reachable": false,
+      "latency": {
+        "sent": 0,
+        "received": 0,
+        "loss_pct": 0,
+        "min_ms": 0,
+        "avg_ms": 0,
+        "median_ms": 0,
+        "p90_ms": 0,
+        "max_ms": 0,
+        "jitter_ms": 0
+      },
+      "dnssec": "n/a",
+      "https_rr": "",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "",
+      "caching": "",
+      "cookies": "",
+      "case_0x20": "",
+      "canary_doh": "",
+      "canary_relay": "",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP query (A)",
+          "status": "skip",
+          "detail": "skipped: this host has no working IPv6 internet connectivity"
+        }
+      ]
+    },
+    {
+      "label": "OpenDNS (Cisco) primary IPv4",
+      "provider": "OpenDNS (Cisco)",
+      "provider_key": "opendns",
+      "role": "public",
+      "addr": "208.67.222.222:53",
+      "family": 4,
+      "primary": true,
+      "interface": "eth0",
+      "local_addr": "192.0.2.2:40196",
+      "on_link": false,
+      "reachable": true,
+      "latency": {
+        "sent": 3,
+        "received": 3,
+        "loss_pct": 0,
+        "min_ms": 0.31,
+        "avg_ms": 0.84,
+        "median_ms": 1.01,
+        "p90_ms": 1.21,
+        "max_ms": 1.21,
+        "jitter_ms": 0.55
+      },
+      "dnssec": "inconclusive",
+      "dnssec_confidence": "inconclusive",
+      "https_rr": "error",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "unknown",
+      "caching": "unknown",
+      "cookies": "no",
+      "case_0x20": "preserved",
+      "canary_doh": "unknown",
+      "canary_relay": "unknown",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP/53 query (A example.com)",
+          "status": "warn",
+          "detail": "server answered with NXDOMAIN and no usable address",
+          "query": "example.com A",
+          "rtt_ms": 0.75,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "tcp",
+          "name": "TCP/53 query",
+          "status": "warn",
+          "detail": "TCP/53 failed (refused) — responses larger than the UDP limit will fail",
+          "query": "example.com A",
+          "rtt_ms": 0.39,
+          "error": "refused: dial tcp 208.67.222.222:53: connect: connection refused"
+        },
+        {
+          "id": "udp_aaaa",
+          "name": "AAAA query",
+          "status": "warn",
+          "detail": "AAAA query returned NXDOMAIN",
+          "query": "example.com AAAA",
+          "rtt_ms": 0.51,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "latency",
+          "name": "Latency (cached queries)",
+          "status": "pass",
+          "detail": "3/3 answered, median 1.0 ms, p90 1.2 ms, jitter 0.6 ms"
+        },
+        {
+          "id": "edns",
+          "name": "EDNS0 support",
+          "status": "pass",
+          "detail": "EDNS0, server UDP payload 8192"
+        },
+        {
+          "id": "tc_fallback",
+          "name": "Truncation → TCP fallback",
+          "status": "fail",
+          "detail": "large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers",
+          "query": ". DNSKEY +dnssec bufsize=512",
+          "rtt_ms": 0.48,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "edns_large",
+          "name": "Large UDP response (\u003e1 KB)",
+          "status": "pass",
+          "detail": "received 28-byte UDP response intact",
+          "query": ". DNSKEY +dnssec bufsize=4096",
+          "rtt_ms": 0.4,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "dnssec",
+          "name": "DNSSEC validation",
+          "status": "info",
+          "detail": "the signed control domain did not resolve, so validation cannot be judged [signed control: NXDOMAIN; bogus zone: NXDOMAIN; bogus zone with CD=1: NXDOMAIN]",
+          "query": "ietf.org (signed) / dnssec-failed.org (bogus), with and without CD",
+          "rtt_ms": 0.29,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra"
+        },
+        {
+          "id": "nxdomain",
+          "name": "NXDOMAIN integrity",
+          "status": "info",
+          "detail": "inconclusive: this resolver also fails the control name example.com",
+          "query": "sadns-nx-5fwerl5uj3oz53.com A",
+          "rtt_ms": 0.15,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 56
+        },
+        {
+          "id": "filtering",
+          "name": "Ad/tracker filtering",
+          "status": "info",
+          "detail": "unknown — 4/4 blocked via NXDOMAIN×4 (pagead2.googlesyndication.com: timeout; ad.doubleclick.net: NXDOMAIN; googleadservices.com: NXDOMAIN; adservice.google.com: NXDOMAIN; static.ads-twitter.com: NXDOMAIN; inconclusive: the control name example.com does not resolve either)",
+          "query": "pagead2.googlesyndication.com, ad.doubleclick.net, googleadservices.com, adservice.google.com, static.ads-twitter.com"
+        },
+        {
+          "id": "identity",
+          "name": "Server identity (CHAOS)",
+          "status": "info",
+          "detail": "no identity disclosed"
+        },
+        {
+          "id": "egress",
+          "name": "Upstream egress address",
+          "status": "info",
+          "detail": "could not determine (echo names did not answer)"
+        },
+        {
+          "id": "case_0x20",
+          "name": "Query-name case preserved (0x20)",
+          "status": "pass",
+          "detail": "question echoed with identical letter case",
+          "query": "ExAmpLE.cOm. A",
+          "rtt_ms": 0.47,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "edns_version",
+          "name": "EDNS version negotiation",
+          "status": "info",
+          "detail": "answered NXDOMAIN instead of BADVERS (ignores EDNS version — harmless today, non-compliant)",
+          "query": "example.com A +edns=1",
+          "rtt_ms": 1.16,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "cookie",
+          "name": "DNS Cookies (RFC 7873)",
+          "status": "info",
+          "detail": "no cookie support (common for home routers; not a fault)",
+          "query": "example.com A +cookie, then +cookie=\u003cserver cookie\u003e",
+          "rtt_ms": 0.35,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "https_rr",
+          "name": "HTTPS/SVCB record type (RFC 9460)",
+          "status": "warn",
+          "detail": "HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back",
+          "query": "cloudflare.com HTTPS (known to exist)",
+          "rtt_ms": 0.46,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 43
+        },
+        {
+          "id": "burst",
+          "name": "Parallel query bursts",
+          "status": "pass",
+          "detail": "5-burst 5/5, 20-burst 20/20 and 20/20 (slowest 1.4 ms)",
+          "query": "example.com A ×5, ×20, ×20",
+          "rtt_ms": 1.36
+        },
+        {
+          "id": "rebind",
+          "name": "DNS rebinding protection",
+          "status": "info",
+          "detail": "inconclusive: control names did not resolve (nip.io control: NXDOMAIN; sslip.io control: NXDOMAIN)"
+        },
+        {
+          "id": "cache",
+          "name": "Uncached lookups \u0026 caching",
+          "status": "info",
+          "detail": "inconclusive: the wildcard test names did not resolve (nip.io: NXDOMAIN; sslip.io: NXDOMAIN)"
+        },
+        {
+          "id": "dot",
+          "name": "DNS-over-TLS (853)",
+          "status": "warn",
+          "detail": "DoT failed (refused)",
+          "query": "tls://208.67.222.222:853 (dns.opendns.com)",
+          "rtt_ms": 0.21,
+          "error": "refused: dial tcp 208.67.222.222:853: connect: connection refused"
+        },
+        {
+          "id": "doh",
+          "name": "DNS-over-HTTPS (443)",
+          "status": "warn",
+          "detail": "DoH failed (http)",
+          "query": "https://dns.opendns.com/dns-query (via 208.67.222.222:443)",
+          "rtt_ms": 2.22,
+          "error": "http: HTTP 403"
+        }
+      ]
+    },
+    {
+      "label": "OpenDNS (Cisco) primary IPv6",
+      "provider": "OpenDNS (Cisco)",
+      "provider_key": "opendns",
+      "role": "public",
+      "addr": "[2620:119:35::35]:53",
+      "family": 6,
+      "primary": true,
+      "on_link": false,
+      "reachable": false,
+      "latency": {
+        "sent": 0,
+        "received": 0,
+        "loss_pct": 0,
+        "min_ms": 0,
+        "avg_ms": 0,
+        "median_ms": 0,
+        "p90_ms": 0,
+        "max_ms": 0,
+        "jitter_ms": 0
+      },
+      "dnssec": "n/a",
+      "https_rr": "",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "",
+      "caching": "",
+      "cookies": "",
+      "case_0x20": "",
+      "canary_doh": "",
+      "canary_relay": "",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP query (A)",
+          "status": "skip",
+          "detail": "skipped: this host has no working IPv6 internet connectivity"
+        }
+      ]
+    },
+    {
+      "label": "AdGuard DNS primary IPv4",
+      "provider": "AdGuard DNS",
+      "provider_key": "adguard",
+      "role": "public",
+      "addr": "94.140.14.14:53",
+      "family": 4,
+      "primary": true,
+      "interface": "eth0",
+      "local_addr": "192.0.2.2:55086",
+      "on_link": false,
+      "reachable": true,
+      "latency": {
+        "sent": 3,
+        "received": 3,
+        "loss_pct": 0,
+        "min_ms": 0.39,
+        "avg_ms": 1,
+        "median_ms": 1.08,
+        "p90_ms": 1.53,
+        "max_ms": 1.53,
+        "jitter_ms": 0.92
+      },
+      "dnssec": "inconclusive",
+      "dnssec_confidence": "inconclusive",
+      "https_rr": "error",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "unknown",
+      "caching": "unknown",
+      "cookies": "no",
+      "case_0x20": "preserved",
+      "canary_doh": "unknown",
+      "canary_relay": "unknown",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP/53 query (A example.com)",
+          "status": "warn",
+          "detail": "server answered with NXDOMAIN and no usable address",
+          "query": "example.com A",
+          "rtt_ms": 0.6,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "tcp",
+          "name": "TCP/53 query",
+          "status": "warn",
+          "detail": "TCP/53 failed (refused) — responses larger than the UDP limit will fail",
+          "query": "example.com A",
+          "rtt_ms": 0.54,
+          "error": "refused: dial tcp 94.140.14.14:53: connect: connection refused"
+        },
+        {
+          "id": "udp_aaaa",
+          "name": "AAAA query",
+          "status": "warn",
+          "detail": "AAAA query returned NXDOMAIN",
+          "query": "example.com AAAA",
+          "rtt_ms": 0.33,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "latency",
+          "name": "Latency (cached queries)",
+          "status": "pass",
+          "detail": "3/3 answered, median 1.1 ms, p90 1.5 ms, jitter 0.9 ms"
+        },
+        {
+          "id": "edns",
+          "name": "EDNS0 support",
+          "status": "pass",
+          "detail": "EDNS0, server UDP payload 8192"
+        },
+        {
+          "id": "tc_fallback",
+          "name": "Truncation → TCP fallback",
+          "status": "fail",
+          "detail": "large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers",
+          "query": ". DNSKEY +dnssec bufsize=512",
+          "rtt_ms": 0.64,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "edns_large",
+          "name": "Large UDP response (\u003e1 KB)",
+          "status": "pass",
+          "detail": "received 28-byte UDP response intact",
+          "query": ". DNSKEY +dnssec bufsize=4096",
+          "rtt_ms": 0.29,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "dnssec",
+          "name": "DNSSEC validation",
+          "status": "info",
+          "detail": "the signed control domain did not resolve, so validation cannot be judged [signed control: NXDOMAIN; bogus zone: NXDOMAIN; bogus zone with CD=1: NXDOMAIN]",
+          "query": "ietf.org (signed) / dnssec-failed.org (bogus), with and without CD",
+          "rtt_ms": 0.9,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra"
+        },
+        {
+          "id": "nxdomain",
+          "name": "NXDOMAIN integrity",
+          "status": "warn",
+          "detail": "query failed (timeout)",
+          "query": "sadns-nx-acpzj9quyt7fc8.com A",
+          "rtt_ms": 2000.96,
+          "error": "timeout: read udp 192.0.2.2:52946-\u003e94.140.14.14:53: i/o timeout"
+        },
+        {
+          "id": "filtering",
+          "name": "Ad/tracker filtering",
+          "status": "info",
+          "detail": "unknown — 5/5 blocked via NXDOMAIN×5 (pagead2.googlesyndication.com: NXDOMAIN; ad.doubleclick.net: NXDOMAIN; googleadservices.com: NXDOMAIN; adservice.google.com: NXDOMAIN; static.ads-twitter.com: NXDOMAIN; inconclusive: the control name example.com does not resolve either)",
+          "query": "pagead2.googlesyndication.com, ad.doubleclick.net, googleadservices.com, adservice.google.com, static.ads-twitter.com"
+        },
+        {
+          "id": "identity",
+          "name": "Server identity (CHAOS)",
+          "status": "info",
+          "detail": "no identity disclosed"
+        },
+        {
+          "id": "egress",
+          "name": "Upstream egress address",
+          "status": "info",
+          "detail": "could not determine (echo names did not answer)"
+        },
+        {
+          "id": "case_0x20",
+          "name": "Query-name case preserved (0x20)",
+          "status": "pass",
+          "detail": "question echoed with identical letter case",
+          "query": "eXAmPle.cOm. A",
+          "rtt_ms": 0.58,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "edns_version",
+          "name": "EDNS version negotiation",
+          "status": "info",
+          "detail": "answered NXDOMAIN instead of BADVERS (ignores EDNS version — harmless today, non-compliant)",
+          "query": "example.com A +edns=1",
+          "rtt_ms": 0.35,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "cookie",
+          "name": "DNS Cookies (RFC 7873)",
+          "status": "info",
+          "detail": "no cookie support (common for home routers; not a fault)",
+          "query": "example.com A +cookie, then +cookie=\u003cserver cookie\u003e",
+          "rtt_ms": 0.43,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "https_rr",
+          "name": "HTTPS/SVCB record type (RFC 9460)",
+          "status": "warn",
+          "detail": "HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back",
+          "query": "cloudflare.com HTTPS (known to exist)",
+          "rtt_ms": 0.39,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 43
+        },
+        {
+          "id": "burst",
+          "name": "Parallel query bursts",
+          "status": "warn",
+          "detail": "5-burst 5/5, 20-burst 16/20 and 20/20 (slowest 1.4 ms) — fine at 5, drops at 20 in a repeatable way: rate limiting or an undersized concurrent-query table",
+          "query": "example.com A ×5, ×20, ×20",
+          "rtt_ms": 1.38
+        },
+        {
+          "id": "rebind",
+          "name": "DNS rebinding protection",
+          "status": "info",
+          "detail": "inconclusive: control names did not resolve (nip.io control: NXDOMAIN; sslip.io control: NXDOMAIN)"
+        },
+        {
+          "id": "cache",
+          "name": "Uncached lookups \u0026 caching",
+          "status": "info",
+          "detail": "inconclusive: the wildcard test names did not resolve (nip.io: NXDOMAIN; sslip.io: NXDOMAIN)"
+        },
+        {
+          "id": "dot",
+          "name": "DNS-over-TLS (853)",
+          "status": "warn",
+          "detail": "DoT failed (refused)",
+          "query": "tls://94.140.14.14:853 (dns.adguard-dns.com)",
+          "rtt_ms": 0.19,
+          "error": "refused: dial tcp 94.140.14.14:853: connect: connection refused"
+        },
+        {
+          "id": "doh",
+          "name": "DNS-over-HTTPS (443)",
+          "status": "warn",
+          "detail": "DoH failed (http)",
+          "query": "https://dns.adguard-dns.com/dns-query (via 94.140.14.14:443)",
+          "rtt_ms": 2.14,
+          "error": "http: HTTP 403"
+        }
+      ]
+    },
+    {
+      "label": "AdGuard DNS primary IPv6",
+      "provider": "AdGuard DNS",
+      "provider_key": "adguard",
+      "role": "public",
+      "addr": "[2a10:50c0::ad1:ff]:53",
+      "family": 6,
+      "primary": true,
+      "on_link": false,
+      "reachable": false,
+      "latency": {
+        "sent": 0,
+        "received": 0,
+        "loss_pct": 0,
+        "min_ms": 0,
+        "avg_ms": 0,
+        "median_ms": 0,
+        "p90_ms": 0,
+        "max_ms": 0,
+        "jitter_ms": 0
+      },
+      "dnssec": "n/a",
+      "https_rr": "",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "",
+      "caching": "",
+      "cookies": "",
+      "case_0x20": "",
+      "canary_doh": "",
+      "canary_relay": "",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP query (A)",
+          "status": "skip",
+          "detail": "skipped: this host has no working IPv6 internet connectivity"
+        }
+      ]
+    },
+    {
+      "label": "Control D (free, unfiltered) primary IPv4",
+      "provider": "Control D (free, unfiltered)",
+      "provider_key": "controld",
+      "role": "public",
+      "addr": "76.76.2.0:53",
+      "family": 4,
+      "primary": true,
+      "interface": "eth0",
+      "local_addr": "192.0.2.2:59653",
+      "on_link": false,
+      "reachable": true,
+      "latency": {
+        "sent": 3,
+        "received": 3,
+        "loss_pct": 0,
+        "min_ms": 0.14,
+        "avg_ms": 0.92,
+        "median_ms": 1.12,
+        "p90_ms": 1.51,
+        "max_ms": 1.51,
+        "jitter_ms": 1.18
+      },
+      "dnssec": "inconclusive",
+      "dnssec_confidence": "inconclusive",
+      "https_rr": "error",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "unknown",
+      "caching": "unknown",
+      "cookies": "no",
+      "case_0x20": "preserved",
+      "canary_doh": "unknown",
+      "canary_relay": "unknown",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP/53 query (A example.com)",
+          "status": "warn",
+          "detail": "server answered with NXDOMAIN and no usable address",
+          "query": "example.com A",
+          "rtt_ms": 0.4,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "tcp",
+          "name": "TCP/53 query",
+          "status": "warn",
+          "detail": "TCP/53 failed (refused) — responses larger than the UDP limit will fail",
+          "query": "example.com A",
+          "rtt_ms": 0.65,
+          "error": "refused: dial tcp 76.76.2.0:53: connect: connection refused"
+        },
+        {
+          "id": "udp_aaaa",
+          "name": "AAAA query",
+          "status": "warn",
+          "detail": "AAAA query returned NXDOMAIN",
+          "query": "example.com AAAA",
+          "rtt_ms": 0.52,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "latency",
+          "name": "Latency (cached queries)",
+          "status": "pass",
+          "detail": "3/3 answered, median 1.1 ms, p90 1.5 ms, jitter 1.2 ms"
+        },
+        {
+          "id": "edns",
+          "name": "EDNS0 support",
+          "status": "pass",
+          "detail": "EDNS0, server UDP payload 8192"
+        },
+        {
+          "id": "tc_fallback",
+          "name": "Truncation → TCP fallback",
+          "status": "fail",
+          "detail": "large answer could not be fetched over TCP (refused); clients cannot recover from truncated UDP answers",
+          "query": ". DNSKEY +dnssec bufsize=512",
+          "rtt_ms": 0.72,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "edns_large",
+          "name": "Large UDP response (\u003e1 KB)",
+          "status": "pass",
+          "detail": "received 28-byte UDP response intact",
+          "query": ". DNSKEY +dnssec bufsize=4096",
+          "rtt_ms": 0.63,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 28
+        },
+        {
+          "id": "dnssec",
+          "name": "DNSSEC validation",
+          "status": "info",
+          "detail": "the signed control domain did not resolve, so validation cannot be judged [signed control: NXDOMAIN; bogus zone: NXDOMAIN; bogus zone with CD=1: NXDOMAIN]",
+          "query": "ietf.org (signed) / dnssec-failed.org (bogus), with and without CD",
+          "rtt_ms": 0.32,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra"
+        },
+        {
+          "id": "nxdomain",
+          "name": "NXDOMAIN integrity",
+          "status": "info",
+          "detail": "inconclusive: this resolver also fails the control name example.com",
+          "query": "sadns-nx-81czlt6ljba6py.com A",
+          "rtt_ms": 0.22,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 56
+        },
+        {
+          "id": "filtering",
+          "name": "Ad/tracker filtering",
+          "status": "info",
+          "detail": "unknown — 4/4 blocked via NXDOMAIN×4 (pagead2.googlesyndication.com: timeout; ad.doubleclick.net: NXDOMAIN; googleadservices.com: NXDOMAIN; adservice.google.com: NXDOMAIN; static.ads-twitter.com: NXDOMAIN; inconclusive: the control name example.com does not resolve either)",
+          "query": "pagead2.googlesyndication.com, ad.doubleclick.net, googleadservices.com, adservice.google.com, static.ads-twitter.com"
+        },
+        {
+          "id": "identity",
+          "name": "Server identity (CHAOS)",
+          "status": "info",
+          "detail": "no identity disclosed"
+        },
+        {
+          "id": "egress",
+          "name": "Upstream egress address",
+          "status": "info",
+          "detail": "could not determine (echo names did not answer)"
+        },
+        {
+          "id": "case_0x20",
+          "name": "Query-name case preserved (0x20)",
+          "status": "pass",
+          "detail": "question echoed with identical letter case",
+          "query": "eXampLE.Com. A",
+          "rtt_ms": 0.52,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "edns_version",
+          "name": "EDNS version negotiation",
+          "status": "info",
+          "detail": "answered NXDOMAIN instead of BADVERS (ignores EDNS version — harmless today, non-compliant)",
+          "query": "example.com A +edns=1",
+          "rtt_ms": 1.18,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "cookie",
+          "name": "DNS Cookies (RFC 7873)",
+          "status": "info",
+          "detail": "no cookie support (common for home routers; not a fault)",
+          "query": "example.com A +cookie, then +cookie=\u003cserver cookie\u003e",
+          "rtt_ms": 0.67,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 40
+        },
+        {
+          "id": "https_rr",
+          "name": "HTTPS/SVCB record type (RFC 9460)",
+          "status": "warn",
+          "detail": "HTTPS-type query returned NXDOMAIN — Safari, Chrome and iOS request these for every site and may stall or fall back",
+          "query": "cloudflare.com HTTPS (known to exist)",
+          "rtt_ms": 1.11,
+          "rcode": "NXDOMAIN",
+          "flags": "qr rd ra",
+          "size": 43
+        },
+        {
+          "id": "burst",
+          "name": "Parallel query bursts",
+          "status": "warn",
+          "detail": "5-burst 1/5, 20-burst 20/20 and 20/20 (slowest 0.8 ms) — losses even at 5 parallel queries: general packet loss or a strict rate limit",
+          "query": "example.com A ×5, ×20, ×20",
+          "rtt_ms": 0.75
+        },
+        {
+          "id": "rebind",
+          "name": "DNS rebinding protection",
+          "status": "info",
+          "detail": "inconclusive: control names did not resolve (nip.io control: NXDOMAIN; sslip.io control: NXDOMAIN)"
+        },
+        {
+          "id": "cache",
+          "name": "Uncached lookups \u0026 caching",
+          "status": "info",
+          "detail": "inconclusive: the wildcard test names did not resolve (nip.io: NXDOMAIN; sslip.io: NXDOMAIN)"
+        },
+        {
+          "id": "dot",
+          "name": "DNS-over-TLS (853)",
+          "status": "warn",
+          "detail": "DoT failed (refused)",
+          "query": "tls://76.76.2.0:853 (p0.freedns.controld.com)",
+          "rtt_ms": 0.13,
+          "error": "refused: dial tcp 76.76.2.0:853: connect: connection refused"
+        },
+        {
+          "id": "doh",
+          "name": "DNS-over-HTTPS (443)",
+          "status": "warn",
+          "detail": "DoH failed (http)",
+          "query": "https://freedns.controld.com/p0 (via 76.76.2.0:443)",
+          "rtt_ms": 2.17,
+          "error": "http: HTTP 403"
+        }
+      ]
+    },
+    {
+      "label": "Control D (free, unfiltered) primary IPv6",
+      "provider": "Control D (free, unfiltered)",
+      "provider_key": "controld",
+      "role": "public",
+      "addr": "[2606:1a40::]:53",
+      "family": 6,
+      "primary": true,
+      "on_link": false,
+      "reachable": false,
+      "latency": {
+        "sent": 0,
+        "received": 0,
+        "loss_pct": 0,
+        "min_ms": 0,
+        "avg_ms": 0,
+        "median_ms": 0,
+        "p90_ms": 0,
+        "max_ms": 0,
+        "jitter_ms": 0
+      },
+      "dnssec": "n/a",
+      "https_rr": "",
+      "filtering": "unknown",
+      "nxdomain": "unknown",
+      "rebind_protection": "",
+      "caching": "",
+      "cookies": "",
+      "case_0x20": "",
+      "canary_doh": "",
+      "canary_relay": "",
+      "egress": {},
+      "tests": [
+        {
+          "id": "udp_a",
+          "name": "UDP query (A)",
+          "status": "skip",
+          "detail": "skipped: this host has no working IPv6 internet connectivity"
+        }
+      ]
+    }
+  ],
+  "interception": {
+    "bogon_probes": [
+      {
+        "id": "bogon_198.51.100.53",
+        "name": "DNS to non-existent server 198.51.100.53",
+        "status": "fail",
+        "detail": "a reply came back from an address that cannot run DNS — port 53 traffic is being transparently intercepted/redirected",
+        "query": "example.com A @198.51.100.53",
+        "rtt_ms": 0.37,
+        "rcode": "NXDOMAIN",
+        "flags": "qr rd ra",
+        "size": 29
+      },
+      {
+        "id": "bogon_2001_db8__53",
+        "name": "DNS to non-existent server 2001:db8::53",
+        "status": "pass",
+        "detail": "no reply (no-ipv6) — no transparent DNS interception detected on this path",
+        "query": "example.com A @2001:db8::53",
+        "error": "no-ipv6: dial udp [2001:db8::53]:53: socket: address family not supported by protocol"
+      }
+    ],
+    "detected": true
+  },
+  "failover": {
+    "configured_count": 2,
+    "working_count": 2,
+    "distinct_hosts": 2,
+    "worst_case_sec": 12,
+    "model": "Estimate from documented OS behaviour, not measured: glibc stub: tries servers in order with timeout:2s attempts:3 (rotate=false). A dead primary adds ~2s to EVERY lookup."
+  },
+  "routing": {
+    "route_choices": [
+      {
+        "dest": "8.8.8.8",
+        "label": "System DNS #1 (Google Public DNS)",
+        "local_addr": "192.0.2.2",
+        "interface": "eth0",
+        "via_vpn": false,
+        "on_link": false
+      },
+      {
+        "dest": "8.8.4.4",
+        "label": "System DNS #2 (Google Public DNS)",
+        "local_addr": "192.0.2.2",
+        "interface": "eth0",
+        "via_vpn": false,
+        "on_link": false
+      },
+      {
+        "dest": "192.0.2.1",
+        "label": "Gateway (IPv4)",
+        "local_addr": "192.0.2.2",
+        "interface": "eth0",
+        "via_vpn": false,
+        "on_link": true
+      },
+      {
+        "dest": "1.1.1.1",
+        "label": "Internet (IPv4 reference)",
+        "local_addr": "192.0.2.2",
+        "interface": "eth0",
+        "via_vpn": false,
+        "on_link": false
+      },
+      {
+        "dest": "2606:4700:4700::1111",
+        "label": "Internet (IPv6 reference)",
+        "via_vpn": false,
+        "on_link": false,
+        "error": "dial udp [2606:4700:4700::1111]:53: socket: address family not supported by protocol"
+      }
+    ],
+    "traceroutes": null
+  },
+  "network_health": {
+    "pings": [
+      {
+        "target": "192.0.2.1",
+        "label": "Default gateway (IPv4) — LAN / Wi-Fi quality",
+        "family": 4,
+        "sent": 0,
+        "received": 0,
+        "loss_pct": 0,
+        "min_ms": 0,
+        "avg_ms": 0,
+        "max_ms": 0,
+        "jitter_ms": 0,
+        "error": "ping command not available"
+      },
+      {
+        "target": "1.1.1.1",
+        "label": "Internet (IPv4) — Cloudflare anycast",
+        "family": 4,
+        "sent": 0,
+        "received": 0,
+        "loss_pct": 0,
+        "min_ms": 0,
+        "avg_ms": 0,
+        "max_ms": 0,
+        "jitter_ms": 0,
+        "error": "ping command not available"
+      }
+    ],
+    "path_mtu": [
+      {
+        "target": "1.1.1.1",
+        "family": 4,
+        "mtu": 0,
+        "detail": "",
+        "error": "ping command not available"
+      }
+    ],
+    "ntp": [
+      {
+        "server": "time.cloudflare.com",
+        "addr": "162.159.200.1",
+        "ok": false,
+        "offset_ms": 0,
+        "rtt_ms": 0,
+        "stratum": 0,
+        "error": "no reply on UDP/123 (read udp 192.0.2.2:45150-\u003e162.159.200.1:123: read: connection refused)"
+      },
+      {
+        "server": "time.google.com",
+        "addr": "216.239.35.0",
+        "ok": false,
+        "offset_ms": 0,
+        "rtt_ms": 0,
+        "stratum": 0,
+        "error": "no reply on UDP/123 (read udp 192.0.2.2:36211-\u003e216.239.35.0:123: read: connection refused)"
+      }
+    ],
+    "http_checks": [
+      {
+        "name": "Google (Android/Chrome)",
+        "url": "http://connectivitycheck.gstatic.com/generate_204",
+        "ok": false,
+        "status": 0,
+        "expect": "204",
+        "detail": "request failed: Get \"http://connectivitycheck.gstatic.com/generate_204\": dial tcp: lookup connectivitycheck.gstatic.com on 8.8.8.8:53: no such host",
+        "ms": 1.24,
+        "error": "Get \"http://connectivitycheck.gstatic.com/generate_204\": dial tcp: lookup connectivitycheck.gstatic.com on 8.8.8.8:53: no such host"
+      },
+      {
+        "name": "Apple (iOS/macOS)",
+        "url": "http://captive.apple.com/hotspot-detect.html",
+        "ok": false,
+        "status": 0,
+        "expect": "Success",
+        "detail": "request failed: Get \"http://captive.apple.com/hotspot-detect.html\": dial tcp: lookup captive.apple.com on 8.8.8.8:53: no such host",
+        "ms": 1.09,
+        "error": "Get \"http://captive.apple.com/hotspot-detect.html\": dial tcp: lookup captive.apple.com on 8.8.8.8:53: no such host"
+      },
+      {
+        "name": "Microsoft (Windows NCSI)",
+        "url": "http://www.msftconnecttest.com/connecttest.txt",
+        "ok": false,
+        "status": 0,
+        "expect": "Microsoft Connect Test",
+        "detail": "request failed: Get \"http://www.msftconnecttest.com/connecttest.txt\": dial tcp: lookup www.msftconnecttest.com on 8.8.8.8:53: no such host",
+        "ms": 1.11,
+        "error": "Get \"http://www.msftconnecttest.com/connecttest.txt\": dial tcp: lookup www.msftconnecttest.com on 8.8.8.8:53: no such host"
+      }
+    ],
+    "nat64": {
+      "detected": false,
+      "detail": "no AAAA for ipv4only.arpa — no DNS64 on this network (normal for dual-stack/IPv4 networks)"
+    },
+    "local_names": [
+      {
+        "name": "vm",
+        "purpose": "this computer's own name",
+        "ok": true,
+        "addrs": [
+          "127.0.0.1"
+        ],
+        "has_v4": true,
+        "has_v6": false,
+        "ms": 0.02,
+        "expected": "local",
+        "resolved": false
+      },
+      {
+        "name": "wpad",
+        "purpose": "WPAD proxy auto-discovery (should NOT exist)",
+        "ok": true,
+        "has_v4": false,
+        "has_v6": false,
+        "ms": 1.52,
+        "error": "lookup wpad on 8.8.8.8:53: no such host",
+        "expected": "absent",
+        "resolved": false
+      },
+      {
+        "name": "[lan-ip-1]",
+        "purpose": "reverse lookup of this computer's IP (docker0)",
+        "ok": false,
+        "has_v4": false,
+        "has_v6": false,
+        "ms": 0.68,
+        "error": "no PTR record",
+        "expected": "ptr",
+        "resolved": false
+      },
+      {
+        "name": "192.0.2.1",
+        "purpose": "reverse lookup of the default gateway",
+        "ok": false,
+        "has_v4": false,
+        "has_v6": false,
+        "ms": 0.22,
+        "error": "no PTR record",
+        "expected": "ptr",
+        "resolved": false
+      }
+    ]
+  },
+  "web_timings": [
+    {
+      "url": "https://www.google.com/generate_204",
+      "host": "www.google.com",
+      "family": 0,
+      "ok": false,
+      "runs": 1,
+      "ok_runs": 0,
+      "dns_ms": 0.22,
+      "connect_ms": 0,
+      "tls_ms": 0,
+      "ttfb_ms": 0,
+      "download_ms": 0,
+      "elapsed_ms": 0,
+      "total_ms": 0,
+      "outcome": "failed",
+      "reachable": false,
+      "http_ok": false,
+      "failed_runs": 1,
+      "error": "DNS lookup failed: lookup www.google.com on 8.8.8.8:53: no such host"
+    },
+    {
+      "url": "https://www.cloudflare.com/cdn-cgi/trace",
+      "host": "www.cloudflare.com",
+      "family": 0,
+      "ok": false,
+      "runs": 1,
+      "ok_runs": 0,
+      "dns_ms": 0.31,
+      "connect_ms": 0,
+      "tls_ms": 0,
+      "ttfb_ms": 0,
+      "download_ms": 0,
+      "elapsed_ms": 0,
+      "total_ms": 0,
+      "outcome": "failed",
+      "reachable": false,
+      "http_ok": false,
+      "failed_runs": 1,
+      "error": "DNS lookup failed: lookup www.cloudflare.com on 8.8.8.8:53: no such host"
+    },
+    {
+      "url": "https://www.wikipedia.org/",
+      "host": "www.wikipedia.org",
+      "family": 0,
+      "ok": false,
+      "runs": 1,
+      "ok_runs": 0,
+      "dns_ms": 0.42,
+      "connect_ms": 0,
+      "tls_ms": 0,
+      "ttfb_ms": 0,
+      "download_ms": 0,
+      "elapsed_ms": 0,
+      "total_ms": 0,
+      "outcome": "failed",
+      "reachable": false,
+      "http_ok": false,
+      "failed_runs": 1,
+      "error": "DNS lookup failed: lookup www.wikipedia.org on 8.8.8.8:53: no such host"
+    },
+    {
+      "url": "https://github.com/robots.txt",
+      "host": "github.com",
+      "family": 4,
+      "ip": "140.82.114.3",
+      "ok": true,
+      "runs": 1,
+      "ok_runs": 1,
+      "status": 200,
+      "proto": "HTTP/2.0",
+      "tls_version": "TLS 1.3",
+      "dns_ms": 1.04,
+      "connect_ms": 0.14,
+      "tls_ms": 1.56,
+      "ttfb_ms": 66.45,
+      "download_ms": 0.09,
+      "elapsed_ms": 69.05,
+      "total_ms": 70.09,
+      "min_elapsed_ms": 69.05,
+      "max_elapsed_ms": 69.05,
+      "run_elapsed_ms": [
+        69.05
+      ],
+      "bytes": 1971,
+      "outcome": "complete-verified",
+      "reachable": true,
+      "http_ok": true,
+      "content_length": 1971,
+      "content_encoding": "gzip",
+      "bytes_all_runs": 1971
+    }
+  ],
+  "data_usage": {
+    "mode": "low-data",
+    "http_body_bytes": 1971,
+    "http_requests": 8,
+    "responses_stopped_at_sample_limit": 0,
+    "requests_limited_by_budget": 0,
+    "scan_budget_bytes": 10485760,
+    "per_response_limit_bytes": 524288,
+    "per_response_limit_user_urls_bytes": 524288,
+    "website_samples_per_family": 1,
+    "confidence_affected": true,
+    "note": "Low Data Mode: one website sample per address family and capped bodies, so website timing findings rest on single measurements and are reported with lower confidence.",
+    "scope": "HTTP response-body bytes downloaded by the website, captive-portal and public-IP tests. Not total network usage: DNS (including DoH), TLS/HTTP protocol overhead, ping, traceroute and NTP traffic are not counted."
+  },
+  "vantage": {
+    "mode": "host",
+    "in_container": false,
+    "detection": "no container markers found"
+  },
+  "privacy": "public"
+}

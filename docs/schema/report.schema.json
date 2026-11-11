@@ -1,0 +1,1825 @@
+{
+  "$defs": {
+    "Connectivity": {
+      "properties": {
+        "ipv4": {
+          "$ref": "#/$defs/FamilyConn"
+        },
+        "ipv6": {
+          "$ref": "#/$defs/FamilyConn"
+        }
+      },
+      "required": [
+        "ipv4",
+        "ipv6"
+      ],
+      "type": "object"
+    },
+    "DataUsage": {
+      "properties": {
+        "confidence_affected": {
+          "type": "boolean"
+        },
+        "http_body_bytes": {
+          "type": "integer"
+        },
+        "http_requests": {
+          "type": "integer"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "per_response_limit_bytes": {
+          "type": "integer"
+        },
+        "per_response_limit_user_urls_bytes": {
+          "type": "integer"
+        },
+        "requests_limited_by_budget": {
+          "type": "integer"
+        },
+        "responses_stopped_at_sample_limit": {
+          "type": "integer"
+        },
+        "scan_budget_bytes": {
+          "type": "integer"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "website_samples_per_family": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "confidence_affected",
+        "http_body_bytes",
+        "http_requests",
+        "mode",
+        "per_response_limit_bytes",
+        "per_response_limit_user_urls_bytes",
+        "requests_limited_by_budget",
+        "responses_stopped_at_sample_limit",
+        "scan_budget_bytes",
+        "scope",
+        "website_samples_per_family"
+      ],
+      "type": "object"
+    },
+    "DualStack": {
+      "properties": {
+        "has_a": {
+          "type": "boolean"
+        },
+        "has_aaaa": {
+          "type": "boolean"
+        },
+        "host": {
+          "type": "string"
+        },
+        "v4": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Probe"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "v6": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Probe"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "has_a",
+        "has_aaaa",
+        "host"
+      ],
+      "type": "object"
+    },
+    "Egress": {
+      "properties": {
+        "as_name": {
+          "type": "string"
+        },
+        "asn": {
+          "type": "string"
+        },
+        "ecs": {
+          "type": "string"
+        },
+        "ip": {
+          "type": "string"
+        },
+        "matches_provider": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Failover": {
+      "properties": {
+        "configured_count": {
+          "type": "integer"
+        },
+        "distinct_hosts": {
+          "type": "integer"
+        },
+        "model": {
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "working_count": {
+          "type": "integer"
+        },
+        "worst_case_sec": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "configured_count",
+        "distinct_hosts",
+        "working_count"
+      ],
+      "type": "object"
+    },
+    "FamilyConn": {
+      "properties": {
+        "disabled_by_option": {
+          "type": "boolean"
+        },
+        "has_address": {
+          "type": "boolean"
+        },
+        "has_default_route": {
+          "type": "boolean"
+        },
+        "has_global_address": {
+          "type": "boolean"
+        },
+        "probes": {
+          "items": {
+            "$ref": "#/$defs/Probe"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "working": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "has_address",
+        "has_default_route",
+        "has_global_address",
+        "probes",
+        "working"
+      ],
+      "type": "object"
+    },
+    "Finding": {
+      "properties": {
+        "category": {
+          "type": "string"
+        },
+        "confidence": {
+          "type": "string"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "evidence": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "recommendation": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "detail",
+        "id",
+        "severity",
+        "title"
+      ],
+      "type": "object"
+    },
+    "HTTPCheck": {
+      "properties": {
+        "bytes": {
+          "type": "integer"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "expect": {
+          "type": "string"
+        },
+        "ms": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "proxy_headers": {
+          "type": "string"
+        },
+        "status": {
+          "type": "integer"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "detail",
+        "expect",
+        "ms",
+        "name",
+        "ok",
+        "status",
+        "url"
+      ],
+      "type": "object"
+    },
+    "Hop": {
+      "properties": {
+        "addr": {
+          "type": "string"
+        },
+        "rtt_ms": {
+          "type": "number"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "boolean"
+        },
+        "ttl": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "timeout",
+        "ttl"
+      ],
+      "type": "object"
+    },
+    "Interception": {
+      "properties": {
+        "bogon_probes": {
+          "items": {
+            "$ref": "#/$defs/TestResult"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "detected": {
+          "type": "boolean"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "bogon_probes",
+        "detected"
+      ],
+      "type": "object"
+    },
+    "Latency": {
+      "properties": {
+        "avg_ms": {
+          "type": "number"
+        },
+        "jitter_ms": {
+          "type": "number"
+        },
+        "loss_pct": {
+          "type": "number"
+        },
+        "max_ms": {
+          "type": "number"
+        },
+        "median_ms": {
+          "type": "number"
+        },
+        "min_ms": {
+          "type": "number"
+        },
+        "p90_ms": {
+          "type": "number"
+        },
+        "received": {
+          "type": "integer"
+        },
+        "sent": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "avg_ms",
+        "jitter_ms",
+        "loss_pct",
+        "max_ms",
+        "median_ms",
+        "min_ms",
+        "p90_ms",
+        "received",
+        "sent"
+      ],
+      "type": "object"
+    },
+    "Layer": {
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "name",
+        "note",
+        "status"
+      ],
+      "type": "object"
+    },
+    "NAT64": {
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "detected": {
+          "type": "boolean"
+        },
+        "prefixes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "detail",
+        "detected"
+      ],
+      "type": "object"
+    },
+    "NTPResult": {
+      "properties": {
+        "addr": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "offset_ms": {
+          "type": "number"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "rtt_ms": {
+          "type": "number"
+        },
+        "server": {
+          "type": "string"
+        },
+        "stratum": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "addr",
+        "offset_ms",
+        "ok",
+        "rtt_ms",
+        "server",
+        "stratum"
+      ],
+      "type": "object"
+    },
+    "NetHealth": {
+      "properties": {
+        "http_checks": {
+          "items": {
+            "$ref": "#/$defs/HTTPCheck"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "local_names": {
+          "items": {
+            "$ref": "#/$defs/OSLookup"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "nat64": {
+          "$ref": "#/$defs/NAT64"
+        },
+        "ntp": {
+          "items": {
+            "$ref": "#/$defs/NTPResult"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "path_mtu": {
+          "items": {
+            "$ref": "#/$defs/PathMTU"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "pings": {
+          "items": {
+            "$ref": "#/$defs/Ping"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "http_checks",
+        "local_names",
+        "nat64",
+        "ntp",
+        "path_mtu",
+        "pings"
+      ],
+      "type": "object"
+    },
+    "OSLookup": {
+      "properties": {
+        "addrs": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "error": {
+          "type": "string"
+        },
+        "expected": {
+          "type": "string"
+        },
+        "has_v4": {
+          "type": "boolean"
+        },
+        "has_v6": {
+          "type": "boolean"
+        },
+        "missing": {
+          "type": "string"
+        },
+        "ms": {
+          "type": "number"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "resolved": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "has_v4",
+        "has_v6",
+        "ms",
+        "name",
+        "ok",
+        "purpose",
+        "resolved"
+      ],
+      "type": "object"
+    },
+    "Options": {
+      "properties": {
+        "encrypted": {
+          "type": "boolean"
+        },
+        "extra_resolvers": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "ipv4": {
+          "type": "boolean"
+        },
+        "ipv6": {
+          "type": "boolean"
+        },
+        "low_data": {
+          "type": "boolean"
+        },
+        "no_public_providers": {
+          "type": "boolean"
+        },
+        "providers": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "quick": {
+          "type": "boolean"
+        },
+        "samples": {
+          "type": "integer"
+        },
+        "timeout_ms": {
+          "type": "integer"
+        },
+        "traceroute": {
+          "type": "boolean"
+        },
+        "user_urls": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "encrypted",
+        "extra_resolvers",
+        "ipv4",
+        "ipv6",
+        "low_data",
+        "providers",
+        "quick",
+        "samples",
+        "timeout_ms",
+        "traceroute"
+      ],
+      "type": "object"
+    },
+    "PathMTU": {
+      "properties": {
+        "detail": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "family": {
+          "type": "integer"
+        },
+        "mtu": {
+          "type": "integer"
+        },
+        "probes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "detail",
+        "family",
+        "mtu",
+        "target"
+      ],
+      "type": "object"
+    },
+    "Ping": {
+      "properties": {
+        "avg_ms": {
+          "type": "number"
+        },
+        "error": {
+          "type": "string"
+        },
+        "family": {
+          "type": "integer"
+        },
+        "jitter_ms": {
+          "type": "number"
+        },
+        "label": {
+          "type": "string"
+        },
+        "loss_pct": {
+          "type": "number"
+        },
+        "max_ms": {
+          "type": "number"
+        },
+        "min_ms": {
+          "type": "number"
+        },
+        "raw": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/execx.Output"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "received": {
+          "type": "integer"
+        },
+        "samples_ms": {
+          "items": {
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "sent": {
+          "type": "integer"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "avg_ms",
+        "family",
+        "jitter_ms",
+        "label",
+        "loss_pct",
+        "max_ms",
+        "min_ms",
+        "received",
+        "sent",
+        "target"
+      ],
+      "type": "object"
+    },
+    "Probe": {
+      "properties": {
+        "error": {
+          "type": "string"
+        },
+        "error_class": {
+          "type": "string"
+        },
+        "family": {
+          "type": "integer"
+        },
+        "local_addr": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "rtt_ms": {
+          "type": "number"
+        },
+        "target": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "family",
+        "name",
+        "ok",
+        "rtt_ms",
+        "target"
+      ],
+      "type": "object"
+    },
+    "PublicIP": {
+      "properties": {
+        "cgnat": {
+          "type": "boolean"
+        },
+        "ipv4": {
+          "$ref": "#/$defs/TraceInfo"
+        },
+        "ipv6": {
+          "$ref": "#/$defs/TraceInfo"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "cgnat",
+        "ipv4",
+        "ipv6"
+      ],
+      "type": "object"
+    },
+    "ResolverResult": {
+      "properties": {
+        "addr": {
+          "type": "string"
+        },
+        "caching": {
+          "type": "string"
+        },
+        "canary_doh": {
+          "type": "string"
+        },
+        "canary_relay": {
+          "type": "string"
+        },
+        "case_0x20": {
+          "type": "string"
+        },
+        "cookies": {
+          "type": "string"
+        },
+        "ddr_targets": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "dnssec": {
+          "type": "string"
+        },
+        "dnssec_confidence": {
+          "type": "string"
+        },
+        "egress": {
+          "$ref": "#/$defs/Egress"
+        },
+        "encrypted_ports_open": {
+          "items": {
+            "type": "integer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "family": {
+          "type": "integer"
+        },
+        "filtering": {
+          "type": "string"
+        },
+        "https_rr": {
+          "type": "string"
+        },
+        "identity": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "interface": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "latency": {
+          "$ref": "#/$defs/Latency"
+        },
+        "local_addr": {
+          "type": "string"
+        },
+        "nxdomain": {
+          "type": "string"
+        },
+        "on_link": {
+          "type": "boolean"
+        },
+        "primary": {
+          "type": "boolean"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "provider_key": {
+          "type": "string"
+        },
+        "reachable": {
+          "type": "boolean"
+        },
+        "rebind_protection": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "software": {
+          "type": "string"
+        },
+        "tests": {
+          "items": {
+            "$ref": "#/$defs/TestResult"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "uncached_ms": {
+          "type": "number"
+        },
+        "uncached_p90_ms": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "addr",
+        "caching",
+        "canary_doh",
+        "canary_relay",
+        "case_0x20",
+        "cookies",
+        "dnssec",
+        "egress",
+        "family",
+        "filtering",
+        "https_rr",
+        "label",
+        "latency",
+        "nxdomain",
+        "on_link",
+        "primary",
+        "provider",
+        "provider_key",
+        "reachable",
+        "rebind_protection",
+        "role",
+        "tests"
+      ],
+      "type": "object"
+    },
+    "RouteChoice": {
+      "properties": {
+        "dest": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "interface": {
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "local_addr": {
+          "type": "string"
+        },
+        "on_link": {
+          "type": "boolean"
+        },
+        "via_vpn": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dest",
+        "label",
+        "on_link",
+        "via_vpn"
+      ],
+      "type": "object"
+    },
+    "Routing": {
+      "properties": {
+        "route_choices": {
+          "items": {
+            "$ref": "#/$defs/RouteChoice"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "traceroutes": {
+          "items": {
+            "$ref": "#/$defs/Trace"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "route_choices",
+        "traceroutes"
+      ],
+      "type": "object"
+    },
+    "Summary": {
+      "properties": {
+        "coverage_gaps": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "fail": {
+          "type": "integer"
+        },
+        "headline": {
+          "type": "string"
+        },
+        "info": {
+          "type": "integer"
+        },
+        "layers": {
+          "items": {
+            "$ref": "#/$defs/Layer"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "pass": {
+          "type": "integer"
+        },
+        "verdict": {
+          "type": "string"
+        },
+        "warn": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "fail",
+        "headline",
+        "info",
+        "pass",
+        "verdict",
+        "warn"
+      ],
+      "type": "object"
+    },
+    "TestResult": {
+      "properties": {
+        "answers": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "detail": {
+          "type": "string"
+        },
+        "ede": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "error": {
+          "type": "string"
+        },
+        "flags": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "rcode": {
+          "type": "string"
+        },
+        "rtt_ms": {
+          "type": "number"
+        },
+        "size": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "detail",
+        "id",
+        "name",
+        "status"
+      ],
+      "type": "object"
+    },
+    "ToolInfo": {
+      "properties": {
+        "built": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "repo": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "built",
+        "commit",
+        "name",
+        "repo",
+        "version"
+      ],
+      "type": "object"
+    },
+    "Trace": {
+      "properties": {
+        "cgnat_hops": {
+          "type": "integer"
+        },
+        "error": {
+          "type": "string"
+        },
+        "family": {
+          "type": "integer"
+        },
+        "hops": {
+          "items": {
+            "$ref": "#/$defs/Hop"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "private_hops": {
+          "type": "integer"
+        },
+        "raw": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/execx.Output"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reached": {
+          "type": "boolean"
+        },
+        "target": {
+          "type": "string"
+        },
+        "tool": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cgnat_hops",
+        "family",
+        "hops",
+        "label",
+        "private_hops",
+        "reached",
+        "target"
+      ],
+      "type": "object"
+    },
+    "TraceInfo": {
+      "properties": {
+        "cert_issuer": {
+          "type": "string"
+        },
+        "clock_known": {
+          "type": "boolean"
+        },
+        "clock_skew_sec": {
+          "type": "number"
+        },
+        "colo": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "ip": {
+          "type": "string"
+        },
+        "loc": {
+          "type": "string"
+        },
+        "method": {
+          "type": "string"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "tls": {
+          "type": "string"
+        },
+        "warp": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "clock_known",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "Vantage": {
+      "properties": {
+        "detection": {
+          "type": "string"
+        },
+        "in_container": {
+          "type": "boolean"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "note": {
+          "type": "string"
+        },
+        "runtime": {
+          "type": "string"
+        },
+        "unavailable": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "in_container",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "WebTiming": {
+      "properties": {
+        "budget_limited_runs": {
+          "type": "integer"
+        },
+        "bytes": {
+          "type": "integer"
+        },
+        "bytes_all_runs": {
+          "type": "integer"
+        },
+        "connect_ms": {
+          "type": "number"
+        },
+        "content_encoding": {
+          "type": "string"
+        },
+        "content_length": {
+          "type": "integer"
+        },
+        "dns_ms": {
+          "type": "number"
+        },
+        "download_ms": {
+          "type": "number"
+        },
+        "elapsed_ms": {
+          "type": "number"
+        },
+        "error": {
+          "type": "string"
+        },
+        "failed_runs": {
+          "type": "integer"
+        },
+        "family": {
+          "type": "integer"
+        },
+        "final_url": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "http_ok": {
+          "type": "boolean"
+        },
+        "ip": {
+          "type": "string"
+        },
+        "max_elapsed_ms": {
+          "type": "number"
+        },
+        "min_elapsed_ms": {
+          "type": "number"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "ok_runs": {
+          "type": "integer"
+        },
+        "outcome": {
+          "type": "string"
+        },
+        "proto": {
+          "type": "string"
+        },
+        "rate_kbps": {
+          "type": "number"
+        },
+        "reachable": {
+          "type": "boolean"
+        },
+        "redirect_ms": {
+          "type": "number"
+        },
+        "redirects": {
+          "type": "integer"
+        },
+        "run_elapsed_ms": {
+          "items": {
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "runs": {
+          "type": "integer"
+        },
+        "sampled_runs": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "integer"
+        },
+        "tls_ms": {
+          "type": "number"
+        },
+        "tls_version": {
+          "type": "string"
+        },
+        "total_ms": {
+          "type": "number"
+        },
+        "ttfb_ms": {
+          "type": "number"
+        },
+        "url": {
+          "type": "string"
+        },
+        "user_specified": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "connect_ms",
+        "dns_ms",
+        "download_ms",
+        "elapsed_ms",
+        "family",
+        "host",
+        "http_ok",
+        "ok",
+        "ok_runs",
+        "reachable",
+        "runs",
+        "tls_ms",
+        "total_ms",
+        "ttfb_ms",
+        "url"
+      ],
+      "type": "object"
+    },
+    "execx.Output": {
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "duration": {
+          "type": "string"
+        },
+        "error": {
+          "type": "string"
+        },
+        "output": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "duration",
+        "output"
+      ],
+      "type": "object"
+    },
+    "sysinfo.Gateway": {
+      "properties": {
+        "family": {
+          "type": "integer"
+        },
+        "gateway": {
+          "type": "string"
+        },
+        "interface": {
+          "type": "string"
+        },
+        "metric": {
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "family",
+        "gateway",
+        "source"
+      ],
+      "type": "object"
+    },
+    "sysinfo.IfAddr": {
+      "properties": {
+        "cidr": {
+          "type": "string"
+        },
+        "family": {
+          "type": "integer"
+        },
+        "ip": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cidr",
+        "family",
+        "ip",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "sysinfo.Info": {
+      "properties": {
+        "arch": {
+          "type": "string"
+        },
+        "default_gateways": {
+          "items": {
+            "$ref": "#/$defs/sysinfo.Gateway"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "hostname": {
+          "type": "string"
+        },
+        "interfaces": {
+          "items": {
+            "$ref": "#/$defs/sysinfo.Interface"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "os": {
+          "type": "string"
+        },
+        "os_version": {
+          "type": "string"
+        },
+        "raw": {
+          "items": {
+            "$ref": "#/$defs/execx.Output"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "resolver_manager": {
+          "type": "string"
+        },
+        "resolver_options": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "resolvers": {
+          "items": {
+            "$ref": "#/$defs/sysinfo.Resolver"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "search_domains": {
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "split_resolvers": {
+          "items": {
+            "$ref": "#/$defs/sysinfo.Resolver"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "stub_resolvers": {
+          "items": {
+            "$ref": "#/$defs/sysinfo.Resolver"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "arch",
+        "default_gateways",
+        "hostname",
+        "interfaces",
+        "os",
+        "os_version",
+        "resolvers",
+        "search_domains",
+        "split_resolvers",
+        "stub_resolvers"
+      ],
+      "type": "object"
+    },
+    "sysinfo.Interface": {
+      "properties": {
+        "addrs": {
+          "items": {
+            "$ref": "#/$defs/sysinfo.IfAddr"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "flags": {
+          "type": "string"
+        },
+        "hwaddr": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer"
+        },
+        "likely_vpn": {
+          "type": "boolean"
+        },
+        "loopback": {
+          "type": "boolean"
+        },
+        "mtu": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string"
+        },
+        "up": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "addrs",
+        "flags",
+        "index",
+        "likely_vpn",
+        "loopback",
+        "mtu",
+        "name",
+        "up"
+      ],
+      "type": "object"
+    },
+    "sysinfo.Resolver": {
+      "properties": {
+        "addr": {
+          "type": "string"
+        },
+        "domain": {
+          "type": "string"
+        },
+        "interface": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "addr",
+        "source"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/StormAvenger/SAdns/docs/schema/report.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Report produced by SAdns (schema string sadns/report/v1). Fields may be added in minor versions; consumers must ignore unknown fields. Breaking changes bump the schema string.",
+  "properties": {
+    "cancelled": {
+      "type": "boolean"
+    },
+    "connectivity": {
+      "$ref": "#/$defs/Connectivity"
+    },
+    "data_usage": {
+      "$ref": "#/$defs/DataUsage"
+    },
+    "dual_stack": {
+      "items": {
+        "$ref": "#/$defs/DualStack"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "duration_sec": {
+      "type": "number"
+    },
+    "failover": {
+      "$ref": "#/$defs/Failover"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/Finding"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "finished_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "interception": {
+      "$ref": "#/$defs/Interception"
+    },
+    "network_health": {
+      "$ref": "#/$defs/NetHealth"
+    },
+    "options": {
+      "$ref": "#/$defs/Options"
+    },
+    "os_lookups": {
+      "items": {
+        "$ref": "#/$defs/OSLookup"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "privacy": {
+      "type": "string"
+    },
+    "public_ip": {
+      "$ref": "#/$defs/PublicIP"
+    },
+    "resolvers": {
+      "items": {
+        "$ref": "#/$defs/ResolverResult"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "routing": {
+      "$ref": "#/$defs/Routing"
+    },
+    "schema": {
+      "pattern": "^sadns/report/v1$",
+      "type": "string"
+    },
+    "started_at": {
+      "format": "date-time",
+      "type": "string"
+    },
+    "summary": {
+      "$ref": "#/$defs/Summary"
+    },
+    "system": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sysinfo.Info"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tool": {
+      "$ref": "#/$defs/ToolInfo"
+    },
+    "vantage": {
+      "$ref": "#/$defs/Vantage"
+    },
+    "web_timings": {
+      "items": {
+        "$ref": "#/$defs/WebTiming"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "connectivity",
+    "data_usage",
+    "dual_stack",
+    "duration_sec",
+    "failover",
+    "findings",
+    "finished_at",
+    "interception",
+    "network_health",
+    "options",
+    "os_lookups",
+    "privacy",
+    "public_ip",
+    "resolvers",
+    "routing",
+    "schema",
+    "started_at",
+    "summary",
+    "system",
+    "tool",
+    "vantage",
+    "web_timings"
+  ],
+  "title": "SAdns report",
+  "type": "object"
+}

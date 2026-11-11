@@ -2,6 +2,32 @@
 
 All notable changes to SAdns. Versions follow [Semantic Versioning](https://semver.org/); until 1.0 any release may change report formats.
 
+## Unreleased
+
+### Dashboard and UI
+- Redesigned UI: graphite / ice-blue glass material, design tokens, light / dark / auto appearance, reduced-motion and reduced-transparency support, keyboard focus, responsive from phones to wide desktops.
+- Dashboard with overall status, Run diagnostics, live progress, last and next scan, Auto Run status, top issues, path overview, resolver comparison, latency/loss and website timing charts.
+- Distinct Healthy / Warning / Failed / Unknown / Not tested states (colour, glyph and word).
+- Settings built from one row component with identical switches in a fixed right-hand column; Advanced section for providers, websites, extra resolvers, samples and timeout.
+
+### History, trends, Auto Run
+- Persistent history of completed, cancelled and failed scans: pin, delete, clear, import, compare two scans, download any scan for AI.
+- Trend charts: DNS latency/jitter/loss, gateway and internet round trip and loss, website load, warnings/failures, IPv4/IPv6 health.
+- Auto Run scheduler (default off; 60 min, Quick, Standard data, keep 100): pause, resume, run now, cancel; no overlapping scans; one catch-up scan after downtime; persists across restarts.
+- File-based, versioned storage with atomic writes and crash recovery ([docs/STORAGE.md](docs/STORAGE.md)).
+
+### Server mode and Docker
+- `sadns serve`: password-protected dashboard for LAN/Docker (PBKDF2 hash, sessions, CSRF, Host allow-list, rate limiting). Desktop mode unchanged: loopback only.
+- `/api/v1` JSON API and `sadns healthcheck`.
+- Multi-stage, multi-arch Dockerfile (non-root, health check, graceful stop), Compose file, Unraid template, CI build and smoke test. No image is published.
+- Container vantage detection: bridge results are labelled as the container's view, with coverage gaps; host networking is an explicit opt-in.
+- `sadns run --save` stores CLI scans in history (Docker one-shot).
+
+### Groundwork
+- JSON Schema for reports (`docs/schema/report.schema.json`), generated from the code and tested.
+- `mobile/sadnsmobile`: gomobile-compatible on-device engine binding; [docs/ANDROID.md](docs/ANDROID.md).
+- Benchmarks and [docs/LANGUAGE-EVALUATION.md](docs/LANGUAGE-EVALUATION.md).
+
 ## v0.1.0 — unreleased
 
 First public pre-release.

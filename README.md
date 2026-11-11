@@ -2,22 +2,24 @@
 
 **Full-scope DNS & network diagnostics in one download.** SAdns checks your OS DNS configuration, your router or local resolver (UniFi, Pi-hole, AdGuard Home, ISP router) and the major public resolvers over IPv4 *and* IPv6. It then produces a technical report you can paste straight into an AI assistant (or hand to a network engineer) to get the problem fixed.
 
-![SAdns start screen](docs/img/start.png)
+![SAdns dashboard](docs/img/dashboard.png)
 
 - **One file, no install, no dependencies.** It's a single static binary for Windows, macOS and Linux (x86 and ARM). The code uses only the Go standard library, with zero third-party modules.
-- **Browser UI.** Double-click it and a dashboard opens in your browser. Live progress, findings, a resolver matrix and one-click **Copy report for AI**.
+- **Browser dashboard.** Double-click it and a dashboard opens in your browser: overall status, the path from this device to websites, top issues, resolver comparison, live progress and one-click **Copy for AI**. Light, dark or automatic appearance; respects reduced motion and reduced transparency.
+- **History, trends and Auto Run.** Every scan (including cancelled ones) is saved. Browse, pin, compare two scans, download any of them for an AI, and see DNS latency, loss, jitter, gateway/internet health, IPv4/IPv6 and website timing over time. Auto Run scans on a schedule (default off; hourly, Quick, Standard data when enabled).
+- **Docker / always-on.** `sadns serve` runs a password-protected dashboard with Auto Run for Docker, Unraid or a home server. See [docs/DOCKER.md](docs/DOCKER.md).
 - **Terminal mode.** Use `sadns run` for servers, SSH sessions and automation. It writes Markdown and JSON reports.
-- **Runs locally.** The report is generated on your machine and never uploaded. The probes themselves do contact public services (listed under [Privacy](#privacy)).
-- **Path overview.** Results are grouped along the path *this device → Wi-Fi/LAN → router → internet → DNS → websites*; a layer that could not be tested is shown as "not tested", never as healthy, and a scan with significant gaps is reported as *partial*, not *healthy*.
-- **Honest about certainty.** Every finding carries evidence, a fix and a confidence level (confirmed / suspected / inconclusive), and the report lists anything that could not be tested.
+- **Runs locally.** Reports are generated and stored on your machine and never uploaded. The probes themselves do contact public services (listed under [Privacy](#privacy)).
+- **Path overview.** Results are grouped along the path *this device → Wi-Fi/LAN → router → internet → DNS → websites*. A layer that could not be tested is shown as *Not tested*, never as healthy, and a scan with significant gaps is reported as *partly tested*.
+- **Honest about certainty and vantage.** Every finding carries evidence, a fix and a confidence level (confirmed / suspected / inconclusive). Reports list anything that could not be tested, and say when they were measured from inside a container rather than on the host.
 
-![SAdns findings](docs/img/findings.png)
+| Results | History and compare |
+|---|---|
+| ![Findings](docs/img/results.png) | ![History](docs/img/history.png) |
+| **Trends** | **Settings** |
+| ![Trends](docs/img/trends.png) | ![Settings](docs/img/settings.png) |
 
-<sub>Screenshot from a lab VM whose network transparently intercepts all DNS — SAdns flags it as the root cause.</sub>
-
-![Network health](docs/img/network.png)
-
-The interface uses a Liquid Glass–style tinted dark theme; pick a tint with the swatches in the toolbar.
+<sub>Screenshots from a lab VM whose network transparently intercepts all DNS — SAdns flags it as the root cause. Light mode and a phone-sized layout: [light](docs/img/dashboard-light.png), [mobile](docs/img/mobile.png).</sub>
 
 ## What it tests
 
@@ -47,8 +49,10 @@ Each finding comes with **evidence** (the exact test results behind it), a **sug
    - **Windows:** double-click. If SmartScreen says "Windows protected your PC", click *More info → Run anyway*. The binaries are not code-signed yet.
    - **macOS:** `chmod +x sadns-darwin-arm64 && xattr -d com.apple.quarantine sadns-darwin-arm64 && ./sadns-darwin-arm64`
    - **Linux:** `chmod +x sadns-linux-amd64 && ./sadns-linux-amd64`
-3. Click **Run diagnostics**. A full scan takes about 30–90 s (traceroutes, ping series and path-MTU probing run alongside the DNS tests).
-4. Click **Copy report for AI** and paste it into ChatGPT, Claude, Gemini, etc. The report starts with instructions for the AI.
+3. Click **Run diagnostics**. A Quick scan takes 10–40 s; a Full scan about 30–90 s (traceroutes, ping series and path-MTU probing run alongside the DNS tests).
+4. Open **Results** and click **Copy for AI**, then paste it into ChatGPT, Claude, Gemini, etc. The report starts with instructions for the AI.
+
+Scans are saved to History automatically (`%AppData%\SAdns`, `~/Library/Application Support/SAdns` or `~/.config/sadns`; see [docs/STORAGE.md](docs/STORAGE.md)). Auto Run in Settings repeats scans on a schedule while SAdns is open; for around-the-clock monitoring use `sadns serve` or Docker.
 
 No admin/root rights are needed.
 
@@ -108,12 +112,16 @@ Every report states the mode, the HTTP body bytes actually downloaded, the numbe
 
 Redaction is applied to the final Markdown/JSON, so it also covers raw command output (`ipconfig /all`, `scutil`, `resolvectl`, traceroutes). Tests check that no identifier survives either level. CLI: `--privacy public|technical|full`.
 
-**The local UI** only listens on loopback (`--listen` refuses anything else). It is opened with a one-time token that is immediately swapped for an HttpOnly, SameSite=Strict session cookie and removed from the address bar. POSTs also need a custom header (CSRF), non-loopback `Host` headers are rejected (DNS rebinding), and a hash-pinned Content-Security-Policy allows only the shipped script and stylesheet.
+**The desktop UI** (`sadns ui`, or double-click) only listens on loopback (`--listen` refuses anything else). It is opened with a one-time token that is immediately swapped for an HttpOnly, SameSite=Strict cookie and removed from the address bar. Every change needs a CSRF header, non-loopback `Host` headers are rejected (DNS rebinding), and a hash-pinned Content-Security-Policy allows only the shipped script and stylesheet.
+
+**Server mode** (`sadns serve`, Docker) is reachable from your LAN, so it requires a password. There is no default password: set `SADNS_PASSWORD` or read the randomly generated one printed once in the log; only a PBKDF2 hash is stored. Sessions are server-side HttpOnly SameSite=Strict cookies with a per-session CSRF token; logins are rate-limited; `Host` names must be IP addresses, `localhost` or listed in `SADNS_ALLOWED_HOSTS`; cross-origin requests are refused. Running without a password is only allowed on a loopback address. Passwords and session tokens never appear in reports or logs. Details: [SECURITY.md](SECURITY.md) and [docs/DOCKER.md](docs/DOCKER.md).
+
+**Stored history** contains the same details as a Full-privacy report and is kept in a private (0700) directory. Exports and downloads are redacted to the privacy level you pick.
 
 ## How it works
 
 ```
-cmd/sadns        CLI entry point (ui / run)
+cmd/sadns        CLI entry point (ui / run / serve / healthcheck)
 internal/sysinfo    interfaces, gateways, OS resolvers (Linux: resolv.conf, systemd-resolved, procfs;
                     macOS: scutil --dns, route; Windows: one PowerShell inventory call)
 internal/dnswire    small DNS wire-format codec (EDNS0, NSID, Extended DNS Errors) — fuzz tested
@@ -121,7 +129,12 @@ internal/dnsclient  UDP / TCP / DoT / DoH exchanges to an explicit IP (never the
 internal/probe      the test suite, connectivity, interception, traceroute, provider catalog
 internal/analyze    rules that turn measurements into findings with evidence + fixes
 internal/report     Markdown (AI-optimised) and JSON renderers, redaction
-internal/web        embedded single-page UI + loopback HTTP server (Server-Sent Events for live progress)
+internal/service    scan manager (one scan at a time, partial results saved) and the Auto Run scheduler
+internal/store      file-based history, settings and secrets with atomic writes and versioned formats
+internal/auth       server-mode password hashing and sessions
+internal/vantage    host vs container (bridge / host network) detection
+internal/web        embedded UI + /api/v1 (desktop token mode or server password mode, SSE live progress)
+mobile/sadnsmobile  gomobile-compatible binding for a future Android app (docs/ANDROID.md)
 internal/mockdns    configurable fake resolver used by tests (healthy, broken, hijacking, filtering)
 ```
 
@@ -139,9 +152,12 @@ make build        # ./sadns
 make test         # unit + mock-resolver integration tests
 make dist         # all release binaries + SHA256SUMS into dist/
 make mock         # start local mock resolvers for offline UI work
+docker build -t sadns:local .   # container image (docs/DOCKER.md)
 ```
 
-Releases are built by GitHub Actions: push a `v*` tag, or run **Actions → Release → Run workflow** with a version. Each release gets SHA-256 checksums and a build-provenance attestation (`gh attestation verify <file> --repo StormAvenger/SAdns`). CI runs on Linux, Windows and macOS with the race detector, staticcheck and govulncheck.
+Also: `python3 tools/e2e/ui_test.py ./sadns <data-dir> <screenshot-dir>` (browser end-to-end test, needs Playwright and Chrome), `tools/docker/smoke.sh <image>` (container test), `go run ./tools/schemagen > docs/schema/report.schema.json` (report schema), and `go test -bench . ./internal/...` (benchmarks; see [docs/LANGUAGE-EVALUATION.md](docs/LANGUAGE-EVALUATION.md)).
+
+Releases are built by GitHub Actions: push a `v*` tag, or run **Actions → Release → Run workflow** with a version. Each release gets SHA-256 checksums and a build-provenance attestation (`gh attestation verify <file> --repo StormAvenger/SAdns`). CI runs on Linux, Windows and macOS with the race detector, staticcheck and govulncheck, plus a browser end-to-end test and a multi-arch container build with a smoke test. Container images are not published.
 
 ## Roadmap
 
@@ -153,7 +169,7 @@ Releases are built by GitHub Actions: push a `v*` tag, or run **Actions → Rele
 - **What the network hands out:** DHCP option 6 and IPv6 RA/RDNSS vs what the OS actually uses; prefix-delegation health
 - **Measured failover:** controlled tests instead of documented-behaviour estimates
 - **More protocols:** DNS-over-QUIC, DoH over HTTP/3, HTTPS/SVCB parameter inspection, negative-caching and stale-answer behaviour
-- **History & monitoring:** baselines, before/after comparison, scheduled JSON output, Docker image for Unraid
+- **Monitoring, next steps:** alerts when a scheduled scan regresses, baselines, a published container image (pending owner approval), an Android app on the prepared engine binding
 - **Guided diagnostics:** start from a symptom ("Wi-Fi calls drop", "one site won't load") and run the relevant checks
 - **Opt-in heavy tests:** packet capture, throughput and bufferbloat-under-load tests (never part of the default scan)
 - Signed/notarised Windows and macOS binaries

@@ -149,7 +149,7 @@ type Manager struct {
 	IdleTTL     time.Duration // session expires after this much inactivity
 	MaxTTL      time.Duration // and in any case after this long
 	MaxSessions int
-	MaxFails    int           // failures per client within FailWindow before lockout
+	MaxFails    int // failures per client within FailWindow before lockout
 	FailWindow  time.Duration
 	Lockout     time.Duration
 	Now         func() time.Time
