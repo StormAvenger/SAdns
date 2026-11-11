@@ -604,11 +604,9 @@ func (e *Engine) localNames(ctx context.Context) []model.OSLookup {
 	}
 	if h := e.sys.Hostname; h != "" {
 		look(h, "this computer's own name", "local")
-		for _, d := range e.sys.SearchDomains {
-			if !strings.Contains(h, ".") {
-				look(h+"."+d, "this computer's name in search domain "+d, "local")
-			}
-			break
+		if len(e.sys.SearchDomains) > 0 && !strings.Contains(h, ".") {
+			d := e.sys.SearchDomains[0]
+			look(h+"."+d, "this computer's name in search domain "+d, "local")
 		}
 	}
 	look("wpad", "WPAD proxy auto-discovery (should NOT exist)", "absent")

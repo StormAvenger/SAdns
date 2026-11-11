@@ -241,32 +241,30 @@ func exchangeStream(ctx context.Context, ep Endpoint, q *dnswire.Msg, useTLS boo
 		r.Err = err
 		return r
 	}
-	for {
-		var lb [2]byte
-		if _, err := io.ReadFull(conn, lb[:]); err != nil {
-			r.Err = err
-			r.RTT = time.Since(start)
-			return r
-		}
-		buf := make([]byte, binary.BigEndian.Uint16(lb[:]))
-		if _, err := io.ReadFull(conn, buf); err != nil {
-			r.Err = err
-			r.RTT = time.Since(start)
-			return r
-		}
-		m, perr := dnswire.Unpack(buf)
+	var lb [2]byte
+	if _, err := io.ReadFull(conn, lb[:]); err != nil {
+		r.Err = err
 		r.RTT = time.Since(start)
-		if err := Validate(q, m, perr, false); err != nil {
-			r.Err, r.ErrClass = err, "malformed"
-			if errors.Is(err, ErrMismatch) {
-				r.ErrClass = "mismatch"
-			}
-			return r
-		}
-		r.Size = len(buf)
-		r.Msg = m
 		return r
 	}
+	buf := make([]byte, binary.BigEndian.Uint16(lb[:]))
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		r.Err = err
+		r.RTT = time.Since(start)
+		return r
+	}
+	m, perr := dnswire.Unpack(buf)
+	r.RTT = time.Since(start)
+	if err := Validate(q, m, perr, false); err != nil {
+		r.Err, r.ErrClass = err, "malformed"
+		if errors.Is(err, ErrMismatch) {
+			r.ErrClass = "mismatch"
+		}
+		return r
+	}
+	r.Size = len(buf)
+	r.Msg = m
+	return r
 }
 
 var (
@@ -373,7 +371,7 @@ func tlsInfo(cs tls.ConnectionState) *TLSInfo {
 		c := cs.PeerCertificates[0]
 		ti.PeerSubject = c.Subject.CommonName
 		ti.PeerIssuer = c.Issuer.CommonName
-		if c.Issuer.Organization != nil && len(c.Issuer.Organization) > 0 {
+		if len(c.Issuer.Organization) > 0 {
 			ti.PeerIssuer += " (" + c.Issuer.Organization[0] + ")"
 		}
 		ti.NotAfter = c.NotAfter.UTC().Format(time.RFC3339)
