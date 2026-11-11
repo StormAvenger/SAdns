@@ -2,7 +2,9 @@
 
 All notable changes to SAdns. Versions follow [Semantic Versioning](https://semver.org/); until 1.0 any release may change report formats.
 
-## Unreleased
+## v0.1.0 — 2026-11-11
+
+First public pre-release.
 
 ### Dashboard and UI
 - Redesigned UI: graphite / ice-blue glass material, design tokens, light / dark / auto appearance, reduced-motion and reduced-transparency support, keyboard focus, responsive from phones to wide desktops.
@@ -27,10 +29,6 @@ All notable changes to SAdns. Versions follow [Semantic Versioning](https://semv
 - JSON Schema for reports (`docs/schema/report.schema.json`), generated from the code and tested.
 - `mobile/sadnsmobile`: gomobile-compatible on-device engine binding; [docs/ANDROID.md](docs/ANDROID.md).
 - Benchmarks and [docs/LANGUAGE-EVALUATION.md](docs/LANGUAGE-EVALUATION.md).
-
-## v0.1.0 — unreleased
-
-First public pre-release.
 
 ### Diagnostics
 - OS resolver discovery for Windows (DNS Client, NRPT, DoH policy), macOS (`scutil --dns`, including split-DNS and interface-scoped resolvers) and Linux (resolv.conf, systemd-resolved per-link routing domains).

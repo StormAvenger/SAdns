@@ -8,6 +8,10 @@ on:
         description: "Version to release (e.g. v0.1.0). Creates the tag on the current main."
         required: true
         default: "v0.1.0"
+      draft:
+        description: "Create as a draft (review it, then press Publish on GitHub)"
+        type: boolean
+        default: true
 
 permissions:
   contents: write     # create the release and tag
@@ -41,9 +45,12 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          DRAFT: ${{ inputs.draft }}
         run: |
           awk -v v="## $VERSION" 'index($0, "## ") == 1 { p = (index($0, v) == 1) } p' CHANGELOG.md > notes.md
           printf '\nVerify a download: `gh attestation verify <file> --repo %s` and compare with SHA256SUMS.txt.\n' "$GITHUB_REPOSITORY" >> notes.md
           pre=""
           case "$VERSION" in v0.*|*-*) pre="--prerelease" ;; esac
-          gh release create "$VERSION" dist/* --target "$GITHUB_SHA" --title "SAdns $VERSION" --notes-file notes.md $pre
+          draft=""
+          [ "$DRAFT" = "true" ] && draft="--draft"   # tag is created when the draft is published
+          gh release create "$VERSION" dist/* --target "$GITHUB_SHA" --title "SAdns $VERSION" --notes-file notes.md $pre $draft
