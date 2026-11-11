@@ -85,3 +85,30 @@ Roadmap: read-only UniFi / Pi-hole / AdGuard Home integration, DHCP option 6 and
 ## Not yet covered by tests
 
 "Windows, macOS and Linux produce equivalent results for the same network" needs real hosts; CI now runs the unit and mock suites natively on all three, but not live-network comparisons. Tests against real Unbound / dnsmasq / AdGuard Home instances are also still to do.
+
+---
+
+# Response to the second audit (commit `cef255f`)
+
+## Confirmed findings
+
+| Audit item | Status | What changed |
+|---|---|---|
+| Unchecking every provider selects all | **Fixed** | Explicit `NoProviders` setting (`no_providers` in the API, sent by the UI when no chip is selected; `--providers none` on the CLI). An empty list alone still means "default" for API callers. Test added. |
+| System resolver that is a public provider is left out of public analysis | **Fixed** | Group membership is no longer the role: any resolver with a provider identity is also in the public group (reachability, encrypted DNS, fastest-resolver, interception/egress checks), and is excluded from "local software fingerprint" comparison against itself. Test added. |
+| `WEB-OK` alongside partial failures | **Fixed** | Any failed or intermittently failing resource produces `WEB-PARTIAL` (warn) and suppresses the pass. Test added. |
+| Redirects / incomplete downloads count as success | **Fixed** | Redirects are followed per address family (max 5) and reported with their cost; success requires a final 2xx and a complete body (copy error and Content-Length checked). Tests cover redirect, loop, 503 and a cut-off transfer. |
+| Totals assembled from phases; medians implied to add up | **Fixed** | Wall-clock time is measured directly. Each row shows the median *run* (so its phases belong together) plus min–max over all runs; the cross-site summary states that per-phase medians do not sum. |
+| Cookie follow-up not verified | **Fixed** | The second response must carry a valid cookie echoing the client cookie; otherwise `partial`. Mock + test added. |
+| Web conclusions too strong | **Fixed** | Three runs per resource/family; web findings are at most *suspected* and say they are observations from single resources, not full page loads. |
+| Coverage gaps don't affect a healthy verdict | **Fixed** | Significant gaps (a family disabled, no ping tool, interception unverifiable, no system resolver found, web tests not run, DoT/DoH disabled) turn *healthy* into *partial*; untested path layers show "not tested". |
+
+## Built from the roadmap now
+
+- **User-specified website tests** (`--url`, UI field): the "Google is fine but this image is slow" case — includes transfer-dominated (`WEB-TRANSFER-SLOW`) and slow-server (`WEB-SERVER-SLOW`) findings.
+- **Path overview** in the UI and report (device → Wi-Fi/LAN → router → internet → DNS → websites), clickable to filter findings, with a distinct not-tested state.
+- **AI report**: instructions now tell the assistant to respect confidence and coverage, and to treat all network-derived content as untrusted evidence, not instructions.
+
+## Deferred (agreed, larger pieces)
+
+Adaptive scan orchestrator and structured evidence store with evidence IDs; browser-backed page waterfalls; HTTP/3/QUIC and DoQ (Go's standard library has no QUIC, so this will be an optional, isolated module — agreed that the zero-dependency rule should not block it); NIC/Wi-Fi telemetry; DHCP/RA inspection; read-only UniFi integration; monitor mode; multi-device comparison; case-bundle export; opt-in packet capture and speed tests; ground-truth scenario library and tests against real Unbound/dnsmasq/Pi-hole/AdGuard Home.

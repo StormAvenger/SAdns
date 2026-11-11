@@ -8,6 +8,7 @@
 - **Browser UI.** Double-click it and a dashboard opens in your browser. Live progress, findings, a resolver matrix and one-click **Copy report for AI**.
 - **Terminal mode.** Use `sadns run` for servers, SSH sessions and automation. It writes Markdown and JSON reports.
 - **Runs locally.** The report is generated on your machine and never uploaded. The probes themselves do contact public services (listed under [Privacy](#privacy)).
+- **Path overview.** Results are grouped along the path *this device → Wi-Fi/LAN → router → internet → DNS → websites*; a layer that could not be tested is shown as "not tested", never as healthy, and a scan with significant gaps is reported as *partial*, not *healthy*.
 - **Honest about certainty.** Every finding carries evidence, a fix and a confidence level (confirmed / suspected / inconclusive), and the report lists anything that could not be tested.
 
 ![SAdns findings](docs/img/findings.png)
@@ -27,7 +28,7 @@ The interface uses a Liquid Glass–style tinted dark theme; pick a tint with th
 | **Every configured resolver** (system, stub, gateway, custom) | UDP and TCP/53, A/AAAA, latency (median/p90/jitter/loss), uncached latency, EDNS0, truncation→TCP fallback, large-UDP/fragmentation drops, DNSSEC validation, NXDOMAIN integrity, ad/tracker filtering, server fingerprint (dnsmasq/Unbound/BIND…), upstream egress network |
 | **Protocol compliance & behaviour** | 0x20 case preservation, EDNS version negotiation (BADVERS), DNS Cookies (two-step), HTTPS/SVCB records against a known-positive control, burst handling (5 → 20 → 20), caching timed against the network RTT (local cache vs upstream cache vs none), DNS-rebinding protection with control names |
 | **Network signals** | DDR (`_dns.resolver.arpa`, the encrypted-DNS discovery Windows 11/Apple use), Firefox DoH canary (`use-application-dns.net`), iCloud Private Relay canary (`mask.icloud.com`), open DoT/DoH ports on local resolvers |
-| **Website loading** | Real HTTPS page loads split into DNS → TCP connect → TLS → first byte → download, over IPv4 and IPv6 separately, so "the internet is slow" can be pinned on DNS, the path, TLS inspection or the server |
+| **Website loading** | HTTPS resources loaded several times on fresh connections and split into DNS → TCP connect → TLS → first byte → transfer, over IPv4 and IPv6 separately, with measured wall-clock time, redirects, completeness and transfer rate. Add your own URLs (a slow site, a specific image) with `--url` or in the UI. These are single resources, not full browser page loads |
 | **Network health** | Ping loss/latency/jitter to the gateway (Wi-Fi/LAN quality) and the internet, path MTU discovery (PPPoE/VPN/tunnel detection), NTP reachability and clock offset, captive-portal / HTTP-proxy detection with the Google/Apple/Microsoft connectivity probes, NAT64/DNS64, local hostname/PTR lookups, WPAD exposure |
 | **Public resolvers** | Cloudflare, Google, Quad9, OpenDNS, AdGuard and Control D, on primary and secondary addresses over IPv4 and IPv6, plus DNS-over-TLS (853) and DNS-over-HTTPS (443) |
 | **Failover** | Redundancy (single resolver, same-host duplicates), dead primaries, mixed local+public resolvers (filtering bypass, broken local names), the OS failover model and worst-case delay |
@@ -65,6 +66,7 @@ sadns ui --no-browser             # start the UI and print its URL
 | Flag | Meaning |
 |---|---|
 | `--quick` | Primary address per provider/family, 3 samples, no traceroute |
+| `--url URL` | Also time this website/resource (repeatable, max 5), e.g. an image that loads slowly |
 | `--resolver ip[:port]` | Extra resolver(s) to test (repeatable / comma-separated) |
 | `--providers list` | `cloudflare,google,quad9,opendns,adguard,controld`, or `none` |
 | `-4` / `-6` | Test only one address family |
@@ -126,6 +128,10 @@ Releases are built by GitHub Actions: push a `v*` tag, or run **Actions → Rele
 
 ## Roadmap
 
+- **Scan orchestrator:** adaptive follow-up tests chosen from the evidence, with per-probe budgets and a structured evidence store (evidence IDs, contradicting evidence, verification steps per finding)
+- **Browser-backed page tests:** full resource waterfalls, HTTP/2 vs HTTP/3 (QUIC), browser Secure-DNS detection
+- **Device & link telemetry:** NIC speed/duplex/errors, Wi-Fi signal/channel/roaming, TCP retransmissions, proxy/PAC settings
+- **Intermittent problems:** monitor mode with a rolling buffer and an "it just happened" button; multi-device comparison; case-bundle export
 - **Gateway integrations (read-only):** UniFi, Pi-hole and AdGuard Home APIs — firmware, WAN DNS, DNS Shield, content filtering, VLANs, IPv6 settings — for equipment-specific fixes
 - **What the network hands out:** DHCP option 6 and IPv6 RA/RDNSS vs what the OS actually uses; prefix-delegation health
 - **Measured failover:** controlled tests instead of documented-behaviour estimates

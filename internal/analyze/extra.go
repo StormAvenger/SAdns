@@ -242,29 +242,49 @@ func nonEmpty(a, b string) string {
 	return b
 }
 
-// webLoads attributes slow page loads to the responsible layer.
+// webLoads attributes slow loads to the responsible layer. Each row is the
+// median of several fresh connections; conclusions are "observed in this
+// scan", so they are at most suspected, never confirmed.
 func (a *az) webLoads() {
-	var ok []model.WebTiming
-	var failed []string
-	for _, w := range a.r.Web {
-		if w.OK {
-			ok = append(ok, w)
-		} else if w.Error != "" {
-			failed = append(failed, fmt.Sprintf("%s (IPv%d %s): %s", w.URL, w.Family, w.IP, w.Error))
-		}
-	}
 	if len(a.r.Web) == 0 {
 		return
+	}
+	var ok []model.WebTiming
+	var failed, flaky []string
+	for _, w := range a.r.Web {
+		fam := ""
+		if w.Family > 0 {
+			fam = fmt.Sprintf(" IPv%d", w.Family)
+		}
+		switch {
+		case w.OKRuns == 0:
+			failed = append(failed, fmt.Sprintf("%s%s: %s", w.URL, fam, w.Error))
+		case !w.OK:
+			flaky = append(flaky, fmt.Sprintf("%s%s: %s", w.URL, fam, w.Error))
+			ok = append(ok, w)
+		default:
+			ok = append(ok, w)
+		}
+	}
+	line := func(w model.WebTiming) string {
+		s := fmt.Sprintf("%s IPv%d: DNS %.0f · connect %.0f · TLS %.0f · first byte %.0f · transfer %.0f ms; measured %.0f ms end-to-end (%d/%d runs ok, range %.0f–%.0f ms, %s", w.Host, w.Family, w.DNSMS, w.ConnectMS, w.TLSMS, w.TTFBMS, w.DownloadMS, w.TotalMS, w.OKRuns, w.Runs, w.MinElapsedMS, w.MaxElapsedMS, w.Proto)
+		if w.Redirects > 0 {
+			s += fmt.Sprintf(", %d redirect(s) costing %.0f ms", w.Redirects, w.RedirectMS)
+		}
+		if w.RateKbps > 0 {
+			s += fmt.Sprintf(", %d bytes at %.0f kbit/s", w.Bytes, w.RateKbps)
+		}
+		return s + ")"
 	}
 	ev := func(ws []model.WebTiming) []string {
 		var out []string
 		for _, w := range ws {
-			out = append(out, fmt.Sprintf("%s IPv%d: DNS %.0f · connect %.0f · TLS %.0f · first byte %.0f · download %.0f = %.0f ms (%s)", w.Host, w.Family, w.DNSMS, w.ConnectMS, w.TLSMS, w.TTFBMS, w.DownloadMS, w.TotalMS, w.Proto))
+			out = append(out, line(w))
 		}
 		return out
 	}
 	if len(ok) == 0 {
-		a.add(model.Warn, "connectivity", "WEB-FAIL", "Test web pages could not be loaded", "None of the HTTPS test pages loaded, even though lower-level tests ran.", "See the errors: TLS errors point at interception or a wrong clock; timeouts at filtering or routing.", failed...)
+		a.add(model.Warn, "connectivity", "WEB-FAIL", "Test web pages could not be loaded", "None of the HTTPS test resources loaded, even though lower-level tests ran.", "See the errors: TLS errors point at interception or a wrong clock; timeouts at filtering or routing.", failed...)
 		return
 	}
 	med := func(f func(model.WebTiming) float64) float64 {
@@ -280,25 +300,46 @@ func (a *az) webLoads() {
 	tlsT := med(func(w model.WebTiming) float64 { return w.TLSMS })
 	ttfb := med(func(w model.WebTiming) float64 { return w.TTFBMS })
 	tot := med(func(w model.WebTiming) float64 { return w.TotalMS })
-	summary := fmt.Sprintf("Median page load %.0f ms = DNS %.0f + connect %.0f + TLS %.0f + first byte %.0f (+ download).", tot, dns, con, tlsT, ttfb)
+	summary := fmt.Sprintf("Across %d site/family combinations (each loaded several times on fresh connections) the typical phases were: DNS %.0f ms, connect %.0f ms, TLS %.0f ms, first byte %.0f ms; typical measured end-to-end time %.0f ms. (Each figure is its own median, so they do not add up exactly.)", len(ok), dns, con, tlsT, ttfb, tot)
+	const caveat = " This is what this scan observed on a handful of single resources — not a full browser page load — so treat it as a strong lead rather than proof."
 
 	issue := false
 	if dns > 150 && dns > con*2 {
 		issue = true
-		a.add(model.Warn, "performance", "WEB-DNS-BOTTLENECK", "DNS is the slowest step of loading web pages", summary+" Name resolution takes longer than connecting to the site.", "Fix the resolver findings above (dead primary, slow upstream, IPv6 DNS timeouts) — this is where users feel it.", ev(ok)...)
-		a.conf(confirmed)
+		a.add(model.Warn, "performance", "WEB-DNS-BOTTLENECK", "DNS was the slowest step when loading the test sites", summary+" Name resolution took longer than connecting."+caveat, "Check the resolver findings (dead primary, slow upstream, IPv6 DNS timeouts) and re-run to see whether it repeats.", ev(ok)...)
+		a.conf(suspected)
 	}
 	if tlsT > 400 && tlsT > con*4 {
 		issue = true
-		a.add(model.Warn, "performance", "WEB-TLS-SLOW", "TLS handshakes are slow while DNS and TCP are fast", summary+" The delay is in the encrypted handshake, not in DNS — changing DNS servers will not help.", "Look for TLS/SSL inspection (firewall, antivirus web shield), a struggling middlebox, or CPU-starved router doing deep packet inspection.", ev(ok)...)
+		a.add(model.Warn, "performance", "WEB-TLS-SLOW", "TLS handshakes were slow while DNS and TCP were fast", summary+" The delay is in the encrypted handshake, not in DNS — changing DNS servers is unlikely to help."+caveat, "Look for TLS/SSL inspection (firewall, antivirus web shield), a struggling middlebox, or a CPU-starved router doing deep packet inspection.", ev(ok)...)
 		a.conf(suspected)
 	}
 	if con > 250 {
 		issue = true
-		a.add(model.Warn, "performance", "WEB-CONNECT-SLOW", "TCP connections to websites are slow", summary+" High connect time means latency or loss on the path itself.", "Check the ping/packet-loss results and the ISP link.", ev(ok)...)
+		a.add(model.Warn, "performance", "WEB-CONNECT-SLOW", "TCP connections to websites were slow", summary+" High connect time means latency or loss on the path itself."+caveat, "Check the ping/packet-loss results and the ISP link.", ev(ok)...)
 		a.conf(suspected)
 	}
-	// IPv6 vs IPv4 for the same site.
+	// Per-resource: content transfer or server response dominating.
+	var xfer, server []string
+	for _, w := range ok {
+		setup := w.DNSMS + w.ConnectMS + w.TLSMS
+		if w.DownloadMS > 1000 && w.DownloadMS > 3*(setup+w.TTFBMS) {
+			xfer = append(xfer, line(w))
+		} else if w.TTFBMS > 1500 && w.TTFBMS > 4*setup {
+			server = append(server, line(w))
+		}
+	}
+	if len(xfer) > 0 {
+		issue = true
+		a.add(model.Warn, "performance", "WEB-TRANSFER-SLOW", "Content transfer is the slow part for some resources — not DNS", "For these resources, name resolution, connection and TLS were quick, and almost all the time went into receiving the content. Changing DNS servers will not help; the limit is throughput on the path, packet loss, or how fast that server/CDN delivers.", "Compare IPv4 vs IPv6 rows and the packet-loss/MTU results; test the same URL on another network to tell your link from the CDN.", xfer...)
+		a.conf(suspected)
+	}
+	if len(server) > 0 {
+		issue = true
+		a.add(model.Info, "performance", "WEB-SERVER-SLOW", "Some servers were slow to start responding", "Connection setup was quick but the server took long to send its first byte. That is usually the website itself (or a proxy in front of it), not your network.", "", server...)
+		a.conf(suspected)
+	}
+	// IPv6 vs IPv4 for the same resource.
 	by := map[string]map[int]model.WebTiming{}
 	for _, w := range ok {
 		if by[w.URL] == nil {
@@ -317,13 +358,14 @@ func (a *az) webLoads() {
 	sort.Strings(slow6)
 	if len(slow6) > 0 {
 		issue = true
-		a.add(model.Warn, "performance", "WEB-V6-SLOWER", "Websites are noticeably slower over IPv6", "Browsers prefer IPv6, so a slower IPv6 path is felt on every dual-stack site.", "Compare the IPv6 ping/MTU results; check the router's IPv6 path, tunnel or MTU.", slow6...)
+		a.add(model.Warn, "performance", "WEB-V6-SLOWER", "Websites were noticeably slower over IPv6", "Browsers prefer IPv6, so a slower IPv6 path is felt on every dual-stack site.", "Compare the IPv6 ping/MTU results; check the router's IPv6 path, tunnel or MTU.", slow6...)
 		a.conf(suspected)
 	}
-	if len(failed) > 0 {
-		a.add(model.Info, "connectivity", "WEB-PARTIAL", "Some test pages failed to load", "Other pages loaded, so this is site- or family-specific.", "", failed...)
+	if len(failed)+len(flaky) > 0 {
+		issue = true
+		a.add(model.Warn, "connectivity", "WEB-PARTIAL", fmt.Sprintf("%d of %d website tests failed or were unreliable", len(failed)+len(flaky), len(a.r.Web)), "Other resources loaded, so this is specific to a site, an address family or it is intermittent. A response only counts as loaded when it ends in a complete 2xx answer (redirects are followed; cut-off transfers and error statuses fail).", "Compare which family/site fails; re-run to see whether it is intermittent.", append(append(failed, flaky...), ev(ok)...)...)
 	}
 	if !issue {
-		a.add(model.Pass, "performance", "WEB-OK", fmt.Sprintf("Web page loads are healthy (median %.0f ms)", tot), summary, "", ev(ok)...)
+		a.add(model.Pass, "performance", "WEB-OK", fmt.Sprintf("All %d website tests loaded completely (typical %.0f ms)", len(a.r.Web), tot), summary, "", ev(ok)...)
 	}
 }

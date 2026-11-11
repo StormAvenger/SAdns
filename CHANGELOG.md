@@ -14,7 +14,10 @@ First public pre-release.
 - Network health: ping loss/jitter with ordered samples, path MTU, NTP (validated replies), captive portal / HTTP proxy, NAT64 (all RFC 6052 prefix lengths), local names, WPAD.
 - Website loading: DNS / connect / TLS / first byte / download per site and family, with root-cause correlation.
 
+- Website tests: 3 runs per resource and family, measured wall-clock totals, redirects followed and reported, completeness (2xx + full body) required, transfer rate, user-specified URLs (`--url`).
+
 ### Analysis & reports
+- Path overview (device → LAN → router → internet → DNS → websites) with an explicit "not tested" state; verdict *partial* when nothing failed but significant areas were untested.
 - Findings carry evidence, a fix and a confidence (confirmed / suspected / inconclusive); coverage gaps list what could not be tested.
 - Markdown report written for AI assistants; JSON for tooling; three privacy levels (full / technical / public-safe).
 

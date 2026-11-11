@@ -304,11 +304,19 @@ func (e *Engine) extraTests(ctx context.Context, t target, res *model.ResolverRe
 		kt.Detail = "no response (" + r.ErrClass + ")"
 	} else if c := r.Msg.Cookie(); len(c) >= 16 && len(c) <= 40 && string(c[:8]) == string(cc) {
 		r2, _ := e.query(ctx, udp, nameBasic, dnswire.TypeA, dnswire.QueryOpts{EDNS: true, Cookie: c})
+		var c2 []byte
+		if r2.Msg != nil {
+			c2 = r2.Msg.Cookie()
+		}
+		echoed := len(c2) >= 16 && len(c2) <= 40 && string(c2[:8]) == string(cc)
 		switch {
-		case r2.OK() && r2.Msg.Rcode == dnswire.RcodeSuccess:
+		case r2.OK() && r2.Msg.Rcode == dnswire.RcodeSuccess && echoed:
 			res.Cookies = "yes"
 			kt.Status = model.Pass
-			kt.Detail = fmt.Sprintf("server issued a %d-byte cookie and accepted it on the next query (spoofing protection works)", len(c)-8)
+			kt.Detail = fmt.Sprintf("server issued a %d-byte cookie, accepted it on the next query and returned a valid cookie again (spoofing protection works)", len(c)-8)
+		case r2.OK() && r2.Msg.Rcode == dnswire.RcodeSuccess:
+			res.Cookies = "partial"
+			kt.Detail = "server issued a cookie once, but the follow-up answer carried no valid cookie — cookies are not maintained (possibly a load-balanced pool or a middlebox stripping the option)"
 		case r2.OK() && r2.Msg.Rcode == 23:
 			res.Cookies = "broken"
 			kt.Detail = "server issued a cookie but rejected it on the next query (BADCOOKIE)"

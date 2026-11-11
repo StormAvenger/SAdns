@@ -156,6 +156,8 @@ func TestHealthy(t *testing.T) {
 	cf.Egress = model.Egress{IP: "172.68.1.1", ASN: "13335", Matches: "yes"}
 	r.Resolvers = []model.ResolverResult{a, b, cf}
 	r.OSLookups = []model.OSLookup{{Name: "example.com", Expected: "v4+v6", OK: true, Resolved: true, HasV4: true, HasV6: true}}
+	r.Web = []model.WebTiming{okWeb("https://a/", 4)}
+	r.Options.Encrypted, r.Options.Traceroute = true, true
 	Run(r)
 	if r.Summary.Verdict != "healthy" || r.Summary.Fail+r.Summary.Warn != 0 {
 		for _, f := range r.Findings {
@@ -173,10 +175,94 @@ func TestWebCorrelationBlamesTLSNotDNS(t *testing.T) {
 	r := baseReport()
 	r.Resolvers = []model.ResolverResult{res("System DNS #1", "system", "192.168.1.1:53", 4, true, ok)}
 	for _, u := range []string{"https://a/", "https://b/", "https://c/"} {
-		r.Web = append(r.Web, model.WebTiming{URL: u, Host: u, Family: 4, OK: true, DNSMS: 5, ConnectMS: 20, TLSMS: 800, TTFBMS: 40, TotalMS: 865})
+		r.Web = append(r.Web, model.WebTiming{URL: u, Host: u, Family: 4, OK: true, Runs: 3, OKRuns: 3, DNSMS: 5, ConnectMS: 20, TLSMS: 800, TTFBMS: 40, TotalMS: 865})
 	}
 	Run(r)
 	if !has(r, "WEB-TLS-SLOW", model.Warn) || has(r, "WEB-DNS-BOTTLENECK", model.Warn) {
 		t.Fatalf("wrong attribution: %+v", r.Findings)
+	}
+}
+
+func okWeb(u string, fam int) model.WebTiming {
+	return model.WebTiming{URL: u, Host: u, Family: fam, OK: true, Runs: 3, OKRuns: 3, DNSMS: 5, ConnectMS: 20, TLSMS: 25, TTFBMS: 40, DownloadMS: 5, ElapsedMS: 90, TotalMS: 95}
+}
+
+func find(r *model.Report, id string) *model.Finding {
+	for i := range r.Findings {
+		if r.Findings[i].ID == id {
+			return &r.Findings[i]
+		}
+	}
+	return nil
+}
+
+// Audit: partial website failures must not coexist with a WEB-OK pass.
+func TestWebPartialFailureIsNotOK(t *testing.T) {
+	r := baseReport()
+	r.Resolvers = []model.ResolverResult{res("System DNS #1", "system", "192.168.1.1:53", 4, true, ok)}
+	r.Web = []model.WebTiming{okWeb("https://a/", 4), {URL: "https://b/", Family: 4, Runs: 3, Error: "HTTP 503"}, func() model.WebTiming {
+		w := okWeb("https://c/", 4)
+		w.OK, w.OKRuns, w.Error = false, 2, "1 of 3 attempts failed: timeout"
+		return w
+	}()}
+	Run(r)
+	if find(r, "WEB-OK") != nil || !has(r, "WEB-PARTIAL", model.Warn) {
+		t.Fatalf("%+v", r.Findings)
+	}
+	for _, l := range r.Summary.Layers {
+		if l.Key == "web" && l.Status != model.Warn {
+			t.Fatalf("web layer = %s", l.Status)
+		}
+	}
+}
+
+// Audit example: fast DNS/connect, slow content transfer → not a DNS problem.
+func TestWebTransferDominates(t *testing.T) {
+	r := baseReport()
+	r.Resolvers = []model.ResolverResult{res("System DNS #1", "system", "192.168.1.1:53", 4, true, ok)}
+	img := okWeb("https://cdn.example/img.jpg", 4)
+	img.DNSMS, img.ConnectMS, img.TLSMS, img.TTFBMS, img.DownloadMS, img.Bytes, img.RateKbps = 8, 18, 31, 140, 1840, 400000, 1739
+	r.Web = []model.WebTiming{okWeb("https://a/", 4), okWeb("https://b/", 4), img}
+	Run(r)
+	f := find(r, "WEB-TRANSFER-SLOW")
+	if f == nil || f.Confidence != "suspected" || find(r, "WEB-DNS-BOTTLENECK") != nil || find(r, "WEB-OK") != nil {
+		t.Fatalf("%+v", r.Findings)
+	}
+}
+
+// Audit: a system resolver that is a public provider takes part in the
+// public comparisons and interception checks.
+func TestSystemResolverThatIsPublicProvider(t *testing.T) {
+	r := baseReport()
+	cf := res("System DNS #1 (Cloudflare)", "system", "1.1.1.1:53", 4, true, ok)
+	cf.ProviderKey = "cloudflare"
+	cf.Identity = map[string]string{"version.bind": "x"}
+	cf.Egress = model.Egress{IP: "172.68.1.1", ASN: "13335", Matches: "yes"}
+	r.Resolvers = []model.ResolverResult{cf}
+	Run(r)
+	if !has(r, "PUB-OK-V4", model.Pass) || !has(r, "INTERCEPT-NONE", model.Pass) || find(r, "INTERCEPT-SUSPECTED") != nil {
+		t.Fatalf("%+v", r.Findings)
+	}
+}
+
+// Audit: significant coverage gaps must not produce a plain "healthy".
+func TestCoverageGapsDowngradeHealthy(t *testing.T) {
+	r := baseReport()
+	a := res("System DNS #1", "system", "192.168.1.1:53", 4, true, ok)
+	b := res("System DNS #2", "system", "192.168.1.2:53", 4, true, ok)
+	a.OnLink, b.OnLink = true, true
+	r.Resolvers = []model.ResolverResult{a, b}
+	r.OSLookups = []model.OSLookup{{Name: "example.com", Expected: "v4+v6", OK: true, Resolved: true, HasV4: true, HasV6: true}}
+	r.Web = []model.WebTiming{okWeb("https://a/", 4)}
+	r.Options.Encrypted, r.Options.Traceroute = true, true
+	r.Network.Pings = []model.Ping{{Target: "1.1.1.1", Error: "ping command not available"}}
+	Run(r)
+	if r.Summary.Verdict != "partial" || r.Summary.Fail+r.Summary.Warn != 0 {
+		t.Fatalf("%+v", r.Summary)
+	}
+	for _, l := range r.Summary.Layers {
+		if l.Key == "lan" && l.Status != "unknown" {
+			t.Fatalf("untested LAN layer shown as %s", l.Status)
+		}
 	}
 }

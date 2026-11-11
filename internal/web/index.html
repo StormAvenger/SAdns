@@ -200,6 +200,18 @@ pre.raw{margin:0;padding:18px;border-radius:var(--r-md);font:12px/1.55 var(--mon
 .toast{position:fixed;bottom:28px;left:50%;transform:translate(-50%,20px);padding:12px 20px;border-radius:999px;opacity:0;transition:.3s;pointer-events:none;z-index:50;font-weight:600}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .gap-wide{gap:18px 22px}
+.path{display:flex;align-items:stretch;gap:0;margin:18px 0 4px;overflow-x:auto;padding:4px 2px}
+.node{flex:1;min-width:150px;padding:14px 16px;border-radius:var(--r-lg);cursor:pointer;transition:transform .2s}
+.node:hover{transform:translateY(-2px)}
+.node.sel{box-shadow:inset 0 0 0 2px var(--tint2),0 18px 50px rgba(0,0,0,.42)}
+.node b{display:flex;align-items:center;gap:8px;font-size:14px}
+.node span{display:block;margin-top:6px;font-size:12px;color:var(--label2);line-height:1.35}
+.node.unknown{background:rgba(18,20,26,.55);box-shadow:none;outline:1.5px dashed rgba(235,235,245,.28);outline-offset:-2px;opacity:.8}
+.node.unknown::before{display:none}
+.node.unknown b{color:var(--label2)}
+.link{flex:none;width:22px;align-self:center;height:2px;background:linear-gradient(90deg,rgba(255,255,255,.25),rgba(255,255,255,.08))}
+.dot.unknown{background:transparent;box-shadow:inset 0 0 0 2px rgba(235,235,245,.4)}
+.v-partial .orb{background:radial-gradient(circle at 35% 30%,#9AD7FF,var(--tint) 55%,#0B4F99);--orbglow:rgba(10,132,255,.4)}
 .runhead{display:flex;align-items:center;gap:12px}
 .runhead strong{font-size:18px;letter-spacing:-.02em}
 .runhead .mono{font-size:15px}
@@ -264,6 +276,7 @@ footer{color:var(--label3);font-size:12.5px;text-align:center;padding:30px}
         <div><div class="label">Latency samples</div><input type="number" id="o-samples" min="1" max="50" value="5"></div>
         <div><div class="label">Timeout (ms)</div><input type="number" id="o-timeout" min="200" max="15000" value="2000"></div>
       </div>
+      <div class="field"><div class="label">Websites to time (optional)</div><input type="text" id="o-urls" placeholder="A slow site or image URL, e.g. reddit.com, https://i.redd.it/…jpg"></div>
       <div class="field"><div class="label">Extra resolvers</div><input type="text" id="o-extra" placeholder="Pi-hole, AdGuard Home… e.g. 192.168.1.2, 10.0.0.53:5353"></div>
       <p class="small">Runs entirely on this computer. Nothing is uploaded; the only traffic is the test queries themselves.</p>
     </div>
@@ -284,6 +297,7 @@ footer{color:var(--label3);font-size:12.5px;text-align:center;padding:30px}
   <!-- RESULTS -->
   <section id="v-res" class="hidden">
     <div class="glass verdict" id="verdict"></div>
+    <div class="path" id="path"></div>
     <div class="actions">
       <button class="btn tinted" id="copy-ai">Copy report for AI</button>
       <button class="btn" id="dl-md">Markdown ↓</button>
@@ -408,6 +422,8 @@ $("run").addEventListener("click", async () => {
     samples: +$("o-samples").value || 0,
     timeout_ms: +$("o-timeout").value || 0,
     providers: [...document.querySelectorAll("#provs input:checked")].map((c) => c.value),
+    no_providers: document.querySelectorAll("#provs input:checked").length === 0,
+    urls: $("o-urls").value.split(/[\s,]+/).filter(Boolean),
     extra: $("o-extra").value.split(/[\s,]+/).filter(Boolean),
     traceroute: $("o-tr").checked, encrypted: $("o-enc").checked,
     ipv4: $("o-v4").checked, ipv6: $("o-v6").checked,
@@ -495,8 +511,10 @@ function selectTab(name) {
 // ------------------------------------------------------------------ results
 function renderResults() {
   const s = report.summary;
-  const icon = { healthy: "✓", degraded: "!", problems: "✕", cancelled: "■" }[s.verdict] || "?";
-  const title = { healthy: "Everything checks out", degraded: "Working, with issues", problems: "Problems found", cancelled: "Scan cancelled" }[s.verdict] || s.verdict;
+  const icon = { healthy: "✓", partial: "◐", degraded: "!", problems: "✕", cancelled: "■" }[s.verdict] || "?";
+  const title = { healthy: "Everything checks out", partial: "No problems found — not everything was tested", degraded: "Working, with issues", problems: "Problems found", cancelled: "Scan cancelled" }[s.verdict] || s.verdict;
+  fLayer = "";
+  renderPath();
   const counts = [["f", "fail", s.fail], ["w", "warn", s.warn], ["i", "info", s.info], ["p", "pass", s.pass]];
   $("verdict").className = "glass verdict v-" + s.verdict;
   fill($("verdict"),
@@ -507,10 +525,19 @@ function renderResults() {
   selectTab("findings");
 }
 
-let fFilter = "issues";
+let fFilter = "issues", fLayer = "";
 function filterFindings(k) { fFilter = k; renderFindings(); }
+// Path overview: device → LAN → router → internet → DNS → websites.
+// "unknown" (hollow, grey) means not tested — never drawn as healthy.
+function renderPath() {
+  const ls = report.summary.layers || [];
+  fill($("path"), ls.map((l, i) => [i ? h("div", { class: "link" }) : null,
+    h("div", { class: "glass node " + l.status + (fLayer === l.key ? " sel" : ""), title: "Show findings for this layer",
+      onclick: () => { fLayer = fLayer === l.key ? "" : l.key; fFilter = fLayer ? "all" : "issues"; renderPath(); selectTab("findings"); renderFindings(); } },
+      h("b", null, dot(l.status), l.name), h("span", null, l.note))]));
+}
 function renderFindings() {
-  const want = (f) => fFilter === "all" || (fFilter === "issues" ? f.severity !== "pass" : f.severity === fFilter);
+  const want = (f) => (!fLayer || f.layer === fLayer) && (fFilter === "all" || (fFilter === "issues" ? f.severity !== "pass" : f.severity === fFilter));
   const btn = (k, label) => h("button", { class: "btn small" + (fFilter === k ? " tinted" : ""), onclick: () => filterFindings(k) }, label);
   const list = report.findings.filter(want);
   const gaps = report.summary.coverage_gaps || [];
@@ -593,11 +620,16 @@ function renderNetwork() {
   fill($("t-network"),
     web.length ? [h("h3", { class: "sec" }, "Website loading — where the time goes"),
       h("div", { class: "legend" }, [["DNS", "#BF5AF2"], ["Connect", "var(--tint2)"], ["TLS", "var(--orange)"], ["First byte", "var(--green)"], ["Download", "var(--gray)"]].map(([n, c]) => h("span", { style: "--c:" + c }, n))),
-      tbl(["", "Site", "Family", "Phases", "DNS", "Connect", "TLS", "First byte", "Total", "Protocol"], web.map((w) => h("tr", null,
-        h("td", null, dot(w.ok ? "pass" : "fail")), h("td", { class: "mono" }, w.host), h("td", null, w.family ? "IPv" + w.family : "—"),
-        h("td", null, w.ok ? bar(w) : h("span", { class: "small" }, w.error || "failed")),
+      h("p", { class: "small", style: "margin:0 4px 10px" }, "Single resources loaded several times on fresh connections (median run shown) — a baseline, not a full browser page load. Add your own URLs under “Websites to time” on the start screen."),
+      tbl(["", "Resource", "Family", "Phases", "DNS", "Connect", "TLS", "First byte", "Transfer", "Measured", "Range", "Runs", "Details"], web.map((w) => h("tr", null,
+        h("td", null, dot(w.ok ? "pass" : w.ok_runs ? "warn" : "fail")),
+        h("td", { class: "mono", title: w.url }, w.host, w.user_specified ? h("div", { class: "small" }, "your URL") : null), h("td", null, w.family ? "IPv" + w.family : "—"),
+        h("td", null, w.ok_runs ? bar(w) : h("span", { class: "small" }, w.error || "failed")),
         h("td", { class: "mono" }, fmtMs(w.dns_ms)), h("td", { class: "mono" }, fmtMs(w.connect_ms)), h("td", { class: "mono" }, fmtMs(w.tls_ms)),
-        h("td", { class: "mono" }, fmtMs(w.ttfb_ms)), h("td", { class: "mono" }, fmtMs(w.total_ms)), h("td", { class: "mono" }, [w.proto, w.tls_version].filter(Boolean).join(" ")))))] : null,
+        h("td", { class: "mono" }, fmtMs(w.ttfb_ms)), h("td", { class: "mono" }, fmtMs(w.download_ms)), h("td", { class: "mono" }, fmtMs(w.total_ms)),
+        h("td", { class: "mono" }, w.ok_runs ? `${Math.round(w.min_elapsed_ms)}–${Math.round(w.max_elapsed_ms)} ms` : "—"),
+        h("td", { class: "mono" }, `${w.ok_runs}/${w.runs}`),
+        h("td", { class: "small" }, [[w.proto, w.tls_version].filter(Boolean).join(" "), w.redirects ? `${w.redirects} redirect(s), ${Math.round(w.redirect_ms)} ms` : "", w.rate_kbps ? `${(w.rate_kbps / 1000).toFixed(1)} Mbit/s` : "", w.ok || !w.ok_runs ? "" : w.error].filter(Boolean).join(" · ")))))] : null,
     h("h3", { class: "sec" }, "Packet loss & latency"),
     (n.pings || []).length ? h("div", { class: "grid3" }, n.pings.map(pingCard)) : h("p", { class: "small" }, "No ping targets."),
     h("div", { class: "grid2" },

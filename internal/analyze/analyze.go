@@ -18,6 +18,7 @@ type az struct {
 	r           *model.Report
 	f           []model.Finding
 	intercepted bool
+	sigGaps     int // coverage gaps large enough that "healthy" would overstate the result
 }
 
 func (a *az) add(sev, cat, id, title, detail, rec string, ev ...string) {
@@ -61,8 +62,11 @@ func Run(r *model.Report) {
 		}
 		return cat[a.f[i].Category] < cat[a.f[j].Category]
 	})
+	for i := range a.f {
+		a.f[i].Layer = layerOf(a.f[i])
+	}
 	r.Findings = a.f
-	s := model.Summary{}
+	s := model.Summary{Layers: layers(a.f)}
 	for _, f := range a.f {
 		switch f.Severity {
 		case model.Pass:
@@ -89,6 +93,11 @@ func Run(r *model.Report) {
 		s.Headline = "No DNS or connectivity problems detected"
 	}
 	s.Coverage = gaps
+	// "Healthy" is only claimed for what was actually tested.
+	if s.Verdict == "healthy" && a.sigGaps > 0 {
+		s.Verdict = "partial"
+		s.Headline = fmt.Sprintf("No problems found in what was tested — but %d area(s) could not be tested", a.sigGaps)
+	}
 	if r.Cancelled {
 		s.Verdict = "cancelled"
 		s.Headline = "Scan was cancelled — results are incomplete"
@@ -100,11 +109,18 @@ func Run(r *model.Report) {
 func (a *az) coverage() []string {
 	var g []string
 	r := a.r
+	sig := func(s string) { g = append(g, s); a.sigGaps++ }
 	if r.Connectivity.IPv4.Disabled {
-		g = append(g, "IPv4 tests disabled by option")
+		sig("IPv4 tests disabled by option")
 	}
 	if r.Connectivity.IPv6.Disabled {
-		g = append(g, "IPv6 tests disabled by option")
+		sig("IPv6 tests disabled by option")
+	}
+	if len(a.resolvers("system", "stub")) == 0 {
+		sig("no system DNS resolvers were discovered, so the DNS this device actually uses was not tested")
+	}
+	if len(r.Web) == 0 && !r.Cancelled {
+		sig("website loading tests did not run")
 	}
 	skippedV6 := 0
 	for _, x := range r.Resolvers {
@@ -117,7 +133,7 @@ func (a *az) coverage() []string {
 	}
 	for _, p := range r.Network.Pings {
 		if p.Sent == 0 {
-			g = append(g, "ping / packet-loss tests: "+p.Error)
+			sig("ping / packet-loss tests: " + p.Error)
 			break
 		}
 	}
@@ -136,11 +152,11 @@ func (a *az) coverage() []string {
 		g = append(g, "traceroute disabled by option")
 	}
 	if !r.Options.Encrypted {
-		g = append(g, "DoT/DoH tests disabled by option")
+		sig("DoT/DoH tests disabled by option")
 	}
 	var dnssec, rebind, cache []string
 	for _, x := range r.Resolvers {
-		if x.Role == "public" || !x.Reachable {
+		if x.Role == "public" || x.ProviderKey != "" || !x.Reachable {
 			continue
 		}
 		if x.DNSSEC == "inconclusive" {
@@ -164,7 +180,7 @@ func (a *az) coverage() []string {
 	}
 	for _, f := range a.f {
 		if f.ID == "INTERCEPT-INCONCLUSIVE" {
-			g = append(g, "interception: egress of public resolvers could not be verified")
+			sig("interception: egress of public resolvers could not be verified")
 		}
 	}
 	if runtime := r.System; runtime != nil && runtime.OS != "windows" && runtime.OS != "darwin" {
@@ -183,8 +199,11 @@ func (a *az) resolvers(roles ...string) []*model.ResolverResult {
 	var out []*model.ResolverResult
 	for i := range a.r.Resolvers {
 		for _, ro := range roles {
-			if a.r.Resolvers[i].Role == ro {
-				out = append(out, &a.r.Resolvers[i])
+			// A system resolver that is a public provider's address (e.g.
+			// 1.1.1.1 configured on the OS) belongs to both groups.
+			if x := &a.r.Resolvers[i]; x.Role == ro || (ro == "public" && x.ProviderKey != "") {
+				out = append(out, x)
+				break
 			}
 		}
 	}
@@ -726,7 +745,7 @@ func (a *az) interception() {
 	}
 	localIDs := map[string]bool{}
 	for _, r := range a.resolvers("system", "stub", "gateway") {
-		if v := r.Identity["version.bind"]; v != "" {
+		if v := r.Identity["version.bind"]; v != "" && r.ProviderKey == "" {
 			localIDs[v] = true
 		}
 	}
@@ -823,4 +842,67 @@ func (a *az) routing() {
 		}
 		a.add(sev, "routing", fmt.Sprintf("TRACE-V%d", t.Family), title, "Not reaching the destination is common (ICMP filtering) and is only meaningful together with failed connectivity tests.", "", hopsEv(t)...)
 	}
+}
+
+// layerOf assigns a finding to a hop of the path device → LAN → gateway →
+// internet → DNS → websites.
+func layerOf(f model.Finding) string {
+	id := f.ID
+	has := func(p ...string) bool {
+		for _, x := range p {
+			if strings.HasPrefix(id, x) {
+				return true
+			}
+		}
+		return false
+	}
+	switch {
+	case has("WEB-"):
+		return "web"
+	case has("PING-GW", "LOCAL-NAMES", "WPAD"):
+		return "lan"
+	case has("GW-", "DOUBLE-NAT", "REBIND", "DDR", "CANARY", "LOCAL-ENC"):
+		return "gateway"
+	case has("CLOCK", "NTP-OFFSET", "STUB-", "OS-", "SYS-WIN", "ROUTE-", "COVERAGE", "SYS-NONE"):
+		return "device"
+	case has("CONN-", "DUALSTACK", "PING-", "MTU-", "CGNAT", "NTP-", "CAPTIVE", "HTTP-", "NAT64", "TRACE", "TLS-INTERCEPT"):
+		return "internet"
+	}
+	return "dns"
+}
+
+func layers(fs []model.Finding) []model.Layer {
+	defs := []model.Layer{
+		{Key: "device", Name: "This device"}, {Key: "lan", Name: "Wi-Fi / LAN"}, {Key: "gateway", Name: "Router"},
+		{Key: "internet", Name: "Internet path"}, {Key: "dns", Name: "DNS"}, {Key: "web", Name: "Websites"},
+	}
+	rank := map[string]int{"unknown": 0, model.Pass: 1, model.Warn: 2, model.Fail: 3}
+	for i := range defs {
+		l := &defs[i]
+		l.Status = "unknown"
+		n := map[string]int{}
+		for _, f := range fs {
+			if f.Layer != l.Key || f.Severity == model.Info {
+				continue
+			}
+			n[f.Severity]++
+			if rank[f.Severity] > rank[l.Status] {
+				l.Status = f.Severity
+				if f.Severity != model.Pass {
+					l.Note = f.Title
+				}
+			}
+		}
+		switch l.Status {
+		case "unknown":
+			l.Note = "not tested"
+		case model.Pass:
+			l.Note = fmt.Sprintf("%d checks passed", n[model.Pass])
+		default:
+			if extra := n[model.Fail] + n[model.Warn] - 1; extra > 0 {
+				l.Note += fmt.Sprintf(" (+%d more)", extra)
+			}
+		}
+	}
+	return defs
 }

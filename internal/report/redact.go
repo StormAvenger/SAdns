@@ -96,7 +96,7 @@ func NewRedactor(r *model.Report, level string) *Redactor {
 		if x.Egress.ECS != "" {
 			rd.exact[x.Egress.ECS] = "[client-subnet]"
 		}
-		if ap, err := netip.ParseAddrPort(x.Addr); err == nil && x.Role == "public" {
+		if ap, err := netip.ParseAddrPort(x.Addr); err == nil && (x.Role == "public" || x.ProviderKey != "") {
 			rd.keep[ap.Addr().String()] = true // well-known resolvers identify nobody
 		}
 		// A local resolver's egress is usually the ISP resolver near you.

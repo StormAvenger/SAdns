@@ -30,6 +30,7 @@ type Behavior struct {
 	DDR            bool          // advertise DoH via _dns.resolver.arpa SVCB
 	Lowercase      bool          // lowercase the echoed question (breaks 0x20)
 	Caching        bool          // decrementing TTLs (looks like a cache)
+	CookieOnce     bool          // issue a server cookie only to cookie-less clients (not on follow-ups)
 	RateLimit      int           // drop UDP queries beyond N per 100 ms window (0 = off)
 	BrokenUpstream bool          // SERVFAIL for everything except example.com (dead upstream)
 	StripHTTPS     bool          // NOERROR but no records for HTTPS/SVCB queries
@@ -189,7 +190,7 @@ func (s *Server) answer(q *dnswire.Msg) *dnswire.Msg {
 			case dnswire.OptNSID:
 				r.EDNS.Options = append(r.EDNS.Options, dnswire.EDNSOption{Code: dnswire.OptNSID, Data: []byte("mock-1")})
 			case dnswire.OptCookie:
-				if len(o.Data) >= 8 {
+				if len(o.Data) >= 8 && !(s.B.CookieOnce && len(o.Data) > 8) {
 					r.EDNS.Options = append(r.EDNS.Options, dnswire.EDNSOption{Code: dnswire.OptCookie, Data: append(append([]byte(nil), o.Data[:8]...), dnswire.RandomBytes(16)...)})
 				}
 			}

@@ -54,15 +54,17 @@ type ToolInfo struct {
 
 // Options records how the run was configured.
 type Options struct {
-	Samples    int      `json:"samples"`
-	TimeoutMS  int64    `json:"timeout_ms"`
-	Providers  []string `json:"providers"`
-	Extra      []string `json:"extra_resolvers"`
-	Quick      bool     `json:"quick"`
-	Traceroute bool     `json:"traceroute"`
-	Encrypted  bool     `json:"encrypted"`
-	IPv4       bool     `json:"ipv4"`
-	IPv6       bool     `json:"ipv6"`
+	Samples     int      `json:"samples"`
+	TimeoutMS   int64    `json:"timeout_ms"`
+	Providers   []string `json:"providers"`
+	NoProviders bool     `json:"no_public_providers,omitempty"`
+	URLs        []string `json:"user_urls,omitempty"`
+	Extra       []string `json:"extra_resolvers"`
+	Quick       bool     `json:"quick"`
+	Traceroute  bool     `json:"traceroute"`
+	Encrypted   bool     `json:"encrypted"`
+	IPv4        bool     `json:"ipv4"`
+	IPv6        bool     `json:"ipv6"`
 }
 
 // Summary is the headline result.
@@ -73,6 +75,9 @@ type Summary struct {
 	Info     int    `json:"info"`
 	Warn     int    `json:"warn"`
 	Fail     int    `json:"fail"`
+	// Layers summarises the path device → LAN → gateway → internet → DNS →
+	// websites. "unknown" means not tested — never shown as healthy.
+	Layers []Layer `json:"layers,omitempty"`
 	// Coverage lists checks that could not run (missing tools, disabled
 	// families, unreachable test services) so a clean result is not mistaken
 	// for a complete one.
@@ -91,6 +96,7 @@ type Finding struct {
 	// Confidence: confirmed (independent checks agree), suspected (another
 	// cause is possible), inconclusive (evidence missing or contradictory).
 	Confidence string `json:"confidence,omitempty"`
+	Layer      string `json:"layer,omitempty"` // device, lan, gateway, internet, dns, web
 }
 
 // Probe is a single TCP connectivity attempt.
@@ -380,22 +386,44 @@ type NAT64 struct {
 	Detail   string   `json:"detail"`
 }
 
-// WebTiming breaks one HTTPS page load into phases (one family, fresh connection).
+// WebTiming summarises several fresh loads of one HTTP(S) resource over one
+// address family. Phase fields come from one representative run (the median
+// by wall-clock time), so they belong together; RunTotalsMS keeps every run.
 type WebTiming struct {
-	URL        string  `json:"url"`
-	Host       string  `json:"host"`
-	Family     int     `json:"family"`
-	IP         string  `json:"ip,omitempty"`
-	OK         bool    `json:"ok"`
-	Status     int     `json:"status,omitempty"`
-	Proto      string  `json:"proto,omitempty"`
-	TLSVersion string  `json:"tls_version,omitempty"`
-	DNSMS      float64 `json:"dns_ms"`
-	ConnectMS  float64 `json:"connect_ms"`
-	TLSMS      float64 `json:"tls_ms"`
-	TTFBMS     float64 `json:"ttfb_ms"`
-	DownloadMS float64 `json:"download_ms"`
-	TotalMS    float64 `json:"total_ms"`
-	Bytes      int64   `json:"bytes,omitempty"`
-	Error      string  `json:"error,omitempty"`
+	URL          string    `json:"url"`
+	Host         string    `json:"host"`
+	Custom       bool      `json:"user_specified,omitempty"`
+	Family       int       `json:"family"`
+	IP           string    `json:"ip,omitempty"`
+	OK           bool      `json:"ok"` // every run ended in a complete 2xx response
+	Runs         int       `json:"runs"`
+	OKRuns       int       `json:"ok_runs"`
+	Status       int       `json:"status,omitempty"`
+	Proto        string    `json:"proto,omitempty"`
+	TLSVersion   string    `json:"tls_version,omitempty"`
+	Redirects    int       `json:"redirects,omitempty"`
+	RedirectMS   float64   `json:"redirect_ms,omitempty"`
+	FinalURL     string    `json:"final_url,omitempty"`
+	DNSMS        float64   `json:"dns_ms"` // first OS lookup of the host
+	ConnectMS    float64   `json:"connect_ms"`
+	TLSMS        float64   `json:"tls_ms"`
+	TTFBMS       float64   `json:"ttfb_ms"`
+	DownloadMS   float64   `json:"download_ms"`
+	ElapsedMS    float64   `json:"elapsed_ms"` // measured wall clock of the representative run (redirects included)
+	TotalMS      float64   `json:"total_ms"`   // dns_ms + elapsed_ms
+	MinElapsedMS float64   `json:"min_elapsed_ms,omitempty"`
+	MaxElapsedMS float64   `json:"max_elapsed_ms,omitempty"`
+	RunTotalsMS  []float64 `json:"run_elapsed_ms,omitempty"`
+	Bytes        int64     `json:"bytes,omitempty"`
+	Truncated    bool      `json:"truncated,omitempty"` // stopped at the read limit (not a failure)
+	RateKbps     float64   `json:"rate_kbps,omitempty"`
+	Error        string    `json:"error,omitempty"`
+}
+
+// Layer is one hop of the diagnostic path with its worst observed status.
+type Layer struct {
+	Key    string `json:"key"`
+	Name   string `json:"name"`
+	Status string `json:"status"` // pass, warn, fail, unknown
+	Note   string `json:"note"`
 }

@@ -276,15 +276,19 @@ type infoResp struct {
 }
 
 type runReq struct {
-	Quick      bool     `json:"quick"`
-	Samples    int      `json:"samples"`
-	TimeoutMS  int      `json:"timeout_ms"`
-	Providers  []string `json:"providers"`
-	Extra      []string `json:"extra"`
-	Traceroute bool     `json:"traceroute"`
-	Encrypted  bool     `json:"encrypted"`
-	IPv4       bool     `json:"ipv4"`
-	IPv6       bool     `json:"ipv6"`
+	Quick     bool     `json:"quick"`
+	Samples   int      `json:"samples"`
+	TimeoutMS int      `json:"timeout_ms"`
+	Providers []string `json:"providers"`
+	// NoProviders must be set explicitly: an empty Providers list alone means
+	// "default (all)" for API callers, so the UI sends this when every chip is off.
+	NoProviders bool     `json:"no_providers"`
+	URLs        []string `json:"urls"`
+	Extra       []string `json:"extra"`
+	Traceroute  bool     `json:"traceroute"`
+	Encrypted   bool     `json:"encrypted"`
+	IPv4        bool     `json:"ipv4"`
+	IPv6        bool     `json:"ipv6"`
 }
 
 func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
@@ -322,6 +326,16 @@ func (s *server) handleRun(srvCtx context.Context, w http.ResponseWriter, r *htt
 		cfg.Timeout = time.Duration(req.TimeoutMS) * time.Millisecond
 	}
 	cfg.Providers = req.Providers
+	cfg.NoProviders = req.NoProviders
+	cfg.URLs = nil
+	for i, u := range req.URLs {
+		if i >= probe.MaxCustomURLs {
+			break
+		}
+		if n, err := probe.NormalizeURL(u); err == nil {
+			cfg.URLs = append(cfg.URLs, n)
+		}
+	}
 	cfg.Extra = nil
 	for i, x := range req.Extra {
 		if i >= 16 {

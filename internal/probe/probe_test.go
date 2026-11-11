@@ -372,15 +372,90 @@ func TestValidateNTP(t *testing.T) {
 	}
 }
 
-func TestFetchTimedPhases(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestWebFetchSemantics(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/ok", func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(60 * time.Millisecond)
 		w.Write([]byte("ok"))
-	}))
+	})
+	mux.HandleFunc("/redir", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/ok", http.StatusFound) })
+	mux.HandleFunc("/loop", func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/loop", http.StatusFound) })
+	mux.HandleFunc("/gone", func(w http.ResponseWriter, r *http.Request) { http.Error(w, "nope", http.StatusServiceUnavailable) })
+	mux.HandleFunc("/cut", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.Write([]byte("partial"))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		c, _, _ := w.(http.Hijacker).Hijack()
+		c.Close()
+	})
+	srv := httptest.NewServer(mux)
 	defer srv.Close()
 	e := newTestEngine()
-	w := e.fetchTimed(context.Background(), srv.URL+"/x", netip.MustParseAddr("127.0.0.1"))
-	if !w.OK || w.Status != 200 || w.TTFBMS < 55 || w.Bytes != 2 {
+	ctx := context.Background()
+
+	w := e.fetchFollow(ctx, srv.URL+"/ok", 4, false)
+	if !w.OK || w.Status != 200 || w.TTFBMS < 55 || w.Bytes != 2 || w.ElapsedMS < w.TTFBMS {
+		t.Fatalf("ok: %+v", w)
+	}
+	// A redirect is followed and reported; it is not itself a successful load.
+	w = e.fetchFollow(ctx, srv.URL+"/redir", 4, false)
+	if !w.OK || w.Redirects != 1 || w.Status != 200 || w.FinalURL != srv.URL+"/ok" {
+		t.Fatalf("redirect: %+v", w)
+	}
+	if w = e.fetchFollow(ctx, srv.URL+"/loop", 4, false); w.OK || w.Error == "" {
+		t.Fatalf("redirect loop accepted: %+v", w)
+	}
+	if w = e.fetchFollow(ctx, srv.URL+"/gone", 4, false); w.OK || w.Error != "HTTP 503" {
+		t.Fatalf("error status accepted: %+v", w)
+	}
+	// Audit scenario: an incomplete download must not count as success.
+	if w = e.fetchFollow(ctx, srv.URL+"/cut", 4, false); w.OK || w.Error == "" {
+		t.Fatalf("incomplete body accepted: %+v", w)
+	}
+}
+
+func TestSummarizeRuns(t *testing.T) {
+	w := summarizeRuns([]model.WebTiming{{OK: true, ElapsedMS: 30, TLSMS: 3}, {OK: true, ElapsedMS: 10, TLSMS: 1}, {OK: true, ElapsedMS: 20, TLSMS: 2}})
+	if !w.OK || w.Runs != 3 || w.ElapsedMS != 20 || w.TLSMS != 2 || w.MinElapsedMS != 10 || w.MaxElapsedMS != 30 || len(w.RunTotalsMS) != 3 {
 		t.Fatalf("%+v", w)
+	}
+	w = summarizeRuns([]model.WebTiming{{OK: true, ElapsedMS: 10}, {Error: "boom"}})
+	if w.OK || w.OKRuns != 1 || w.Error == "" {
+		t.Fatalf("flaky run reported healthy: %+v", w)
+	}
+}
+
+func TestNormalizeURL(t *testing.T) {
+	for in, want := range map[string]string{"reddit.com": "https://reddit.com", "http://a.example/x.png": "http://a.example/x.png",
+		"ftp://x": "", "https://user:pw@x.example/": "", "": "", "file:///etc/passwd": ""} {
+		got, err := NormalizeURL(in)
+		if got != want || (err == nil) != (want != "") {
+			t.Errorf("%q → %q, %v", in, got, err)
+		}
+	}
+}
+
+// Audit: deselecting every public provider must test none, not all.
+func TestNoProvidersMeansNone(t *testing.T) {
+	conn := model.Connectivity{IPv4: model.FamilyConn{Working: true}, IPv6: model.FamilyConn{Working: true}}
+	e := New(Config{IPv4: true, IPv6: true, NoProviders: true}, nil)
+	e.sys = &sysinfo.Info{Resolvers: []sysinfo.Resolver{{Addr: "192.168.1.1"}}}
+	if ts := e.targets(conn); len(ts) != 1 {
+		t.Fatalf("got %d targets", len(ts))
+	}
+	e = New(Config{IPv4: true, IPv6: true}, nil)
+	e.sys = &sysinfo.Info{}
+	if ts := e.targets(conn); len(ts) < 20 {
+		t.Fatalf("default should be the full catalog, got %d", len(ts))
+	}
+}
+
+// Audit: a cookie must be maintained on the follow-up, not just issued once.
+func TestCookieNotMaintained(t *testing.T) {
+	r := runMock(t, mockdns.Behavior{CookieOnce: true})
+	if r.Cookies != "partial" || status(r, "cookie") == model.Pass {
+		t.Fatalf("cookies=%s (%s)", r.Cookies, r.Test("cookie").Detail)
 	}
 }

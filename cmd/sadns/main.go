@@ -86,7 +86,9 @@ func realMain(args []string) int {
 		concurrent = fs.Int("concurrency", def.Concurrency, "resolvers tested in parallel")
 		providers  listFlag
 		extra      listFlag
+		urls       listFlag
 	)
+	fs.Var(&urls, "url", "website or resource to time in addition to the baseline sites (e.g. a slow image URL); repeatable, max 5")
 	fs.Var(&providers, "providers", "public providers to test, comma-separated ("+strings.Join(probe.ProviderKeys(), ",")+"); default all; 'none' to skip")
 	fs.Var(&extra, "resolver", "extra resolver to test (ip or ip:port); repeatable or comma-separated")
 	fs.Usage = func() {
@@ -115,11 +117,19 @@ func realMain(args []string) int {
 	cfg.Encrypted = !*noEnc
 	cfg.Concurrency = *concurrent
 	cfg.Extra = extra
+	for i, u := range urls {
+		n, err := probe.NormalizeURL(u)
+		if err != nil || i >= probe.MaxCustomURLs {
+			fmt.Fprintf(os.Stderr, "--url %q: %v (max %d http(s) URLs)\n", u, err, probe.MaxCustomURLs)
+			return 2
+		}
+		cfg.URLs = append(cfg.URLs, n)
+	}
 	if *only4 || *only6 {
 		cfg.IPv4, cfg.IPv6 = *only4, *only6
 	}
 	if len(providers) == 1 && providers[0] == "none" {
-		cfg.Providers = []string{"__none__"}
+		cfg.NoProviders = true
 	} else {
 		for _, p := range providers {
 			if probe.ProviderByKey(p) == nil {

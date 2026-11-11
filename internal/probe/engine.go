@@ -20,7 +20,9 @@ import (
 type Config struct {
 	Samples     int
 	Timeout     time.Duration
-	Providers   []string // provider keys; empty = all
+	Providers   []string // provider keys; empty = all (unless NoProviders)
+	NoProviders bool     // test no public providers at all
+	URLs        []string // extra websites to time (user-specified)
 	Extra       []string // extra resolvers ("ip" or "ip:port")
 	Quick       bool     // primary address per provider/family only, fewer samples
 	Traceroute  bool
@@ -93,7 +95,7 @@ func (e *Engine) log(msg string) {
 func (e *Engine) Run(ctx context.Context) *model.Report {
 	rep := &model.Report{Schema: "sadns/report/v1", StartedAt: time.Now()}
 	rep.Options = model.Options{
-		Samples: e.cfg.Samples, TimeoutMS: e.cfg.Timeout.Milliseconds(), Providers: e.cfg.Providers,
+		Samples: e.cfg.Samples, TimeoutMS: e.cfg.Timeout.Milliseconds(), Providers: e.cfg.Providers, NoProviders: e.cfg.NoProviders, URLs: e.cfg.URLs,
 		Extra: e.cfg.Extra, Quick: e.cfg.Quick, Traceroute: e.cfg.Traceroute, Encrypted: e.cfg.Encrypted,
 		IPv4: e.cfg.IPv4, IPv6: e.cfg.IPv6,
 	}
@@ -282,7 +284,9 @@ func (e *Engine) targets(conn model.Connectivity) []target {
 	}
 
 	provs := Providers
-	if len(e.cfg.Providers) > 0 {
+	if e.cfg.NoProviders {
+		provs = nil
+	} else if len(e.cfg.Providers) > 0 {
 		provs = nil
 		for _, k := range e.cfg.Providers {
 			if p := ProviderByKey(k); p != nil {
