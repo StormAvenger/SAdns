@@ -10,18 +10,21 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: false # no third-party modules, nothing to cache
       - run: go test ./...
       - run: make dist VERSION=${GITHUB_REF_NAME}
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in v0.*|*-*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" dist/* \
             --title "SAdns $GITHUB_REF_NAME" \
-            --generate-notes
+            --generate-notes $pre

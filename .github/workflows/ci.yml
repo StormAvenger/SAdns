@@ -15,10 +15,11 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: false # no third-party modules, nothing to cache
       - run: go vet ./...
       - run: go test ./...
       - name: Cross-compile all release targets
