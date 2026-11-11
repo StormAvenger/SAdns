@@ -199,6 +199,26 @@ pre.raw{margin:0;padding:18px;border-radius:var(--r-md);font:12px/1.55 var(--mon
 .spark i.lost{background:var(--red);opacity:.6;height:100%!important}
 .toast{position:fixed;bottom:28px;left:50%;transform:translate(-50%,20px);padding:12px 20px;border-radius:999px;opacity:0;transition:.3s;pointer-events:none;z-index:50;font-weight:600}
 .toast.show{opacity:1;transform:translate(-50%,0)}
+.gap-wide{gap:18px 22px}
+.runhead{display:flex;align-items:center;gap:12px}
+.runhead strong{font-size:18px;letter-spacing:-.02em}
+.runhead .mono{font-size:15px}
+.livewrap{max-height:340px;background:rgba(0,0,0,.18)}
+.v-cancelled .orb{background:radial-gradient(circle at 35% 30%,#C7C7CC,var(--gray) 55%,#5b5b60);--orbglow:rgba(142,142,147,.4)}
+.conf{display:inline-block;font:600 10.5px var(--sans);letter-spacing:.05em;text-transform:uppercase;padding:2px 8px;border-radius:999px;margin-left:2px}
+.conf.confirmed{color:var(--green);background:rgba(48,209,88,.12)}
+.conf.suspected{color:var(--orange);background:rgba(255,159,10,.13)}
+.conf.inconclusive{color:var(--label2);background:rgba(255,255,255,.08)}
+.gaps{margin-bottom:16px;padding:16px 20px;border-radius:var(--r-lg)}
+.gaps h4{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--orange)}
+.gaps li{color:var(--label2);font-size:13px;margin:3px 0}
+.privacy{display:inline-flex}
+.privacy .seg button{padding:7px 13px;font-size:12.5px;white-space:nowrap}
+.phasebar{display:flex;height:10px;border-radius:999px;overflow:hidden;min-width:180px;background:rgba(255,255,255,.05);box-shadow:inset 0 1px 2px rgba(0,0,0,.4)}
+.phasebar i{display:block;height:100%}
+.ph-dns{background:#BF5AF2}.ph-con{background:var(--tint2)}.ph-tls{background:var(--orange)}.ph-ttfb{background:var(--green)}.ph-dl{background:var(--gray)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--label2);margin:0 4px 10px}
+.legend span::before{content:"";display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px;vertical-align:-1px;background:var(--c)}
 footer{color:var(--label3);font-size:12.5px;text-align:center;padding:30px}
 @media (max-width:960px){.hero,.grid2,.grid3{grid-template-columns:1fr}.phases{grid-template-columns:repeat(4,1fr)}.verdict{flex-wrap:wrap}.counts{margin-left:0}.hero h1{font-size:34px}.feature-grid{grid-template-columns:1fr}}
 </style>
@@ -234,7 +254,7 @@ footer{color:var(--label3);font-size:12.5px;text-align:center;padding:30px}
       <div class="label">Scan</div>
       <div class="seg" id="mode"><button data-v="full" class="on">Full scope</button><button data-v="quick">Quick</button></div>
       <div class="field"><div class="label">Public resolvers</div><div class="chips" id="provs"></div></div>
-      <div class="field row" style="gap:18px 22px">
+      <div class="field row gap-wide">
         <label class="switch"><input type="checkbox" id="o-v4" checked>IPv4</label>
         <label class="switch"><input type="checkbox" id="o-v6" checked>IPv6</label>
         <label class="switch"><input type="checkbox" id="o-enc" checked>DoT / DoH</label>
@@ -251,12 +271,13 @@ footer{color:var(--label3);font-size:12.5px;text-align:center;padding:30px}
 
   <!-- RUNNING -->
   <section id="v-run" class="glass runpanel hidden">
-    <div style="display:flex;align-items:baseline;gap:12px">
-      <strong id="run-msg" style="font-size:18px;letter-spacing:-.02em">Starting…</strong><span class="spacer"></span><span class="mono" id="run-pct" style="font-size:15px">0%</span>
+    <div class="runhead">
+      <strong id="run-msg">Starting…</strong><span class="spacer"></span><span class="mono" id="run-pct">0%</span>
+      <button class="btn small" id="cancel">Cancel</button>
     </div>
     <div class="prog"><div id="bar"></div></div>
     <div class="phases" id="phases"></div>
-    <div class="tw" style="max-height:340px;background:rgba(0,0,0,.18)"><table><thead><tr><th>Resolver</th><th>Address</th><th>Reach</th><th>Median</th><th>DNSSEC</th><th>Filter</th><th>Rebind</th></tr></thead><tbody id="live"></tbody></table></div>
+    <div class="tw livewrap"><table><thead><tr><th>Resolver</th><th>Address</th><th>Reach</th><th>Median</th><th>DNSSEC</th><th>Filter</th><th>Rebind</th></tr></thead><tbody id="live"></tbody></table></div>
     <div class="log" id="log"></div>
   </section>
 
@@ -267,7 +288,7 @@ footer{color:var(--label3);font-size:12.5px;text-align:center;padding:30px}
       <button class="btn tinted" id="copy-ai">Copy report for AI</button>
       <button class="btn" id="dl-md">Markdown ↓</button>
       <button class="btn" id="dl-json">JSON ↓</button>
-      <label class="switch" title="Replace public IPs, IPv6 prefixes, hostname and MAC addresses with placeholders"><input type="checkbox" id="redact">Redact personal info</label>
+      <div class="privacy" title="What the copied/downloaded report hides"><div class="seg" id="privacy"><button data-v="public" title="Also hides LAN IPs and internal domains — safe to post publicly">Public-safe</button><button data-v="technical" class="on" title="Hides your public IPs, IPv6 prefix, hostname and MACs; keeps LAN layout">Technical</button><button data-v="full" title="Nothing hidden — only for people you trust">Full</button></div></div>
       <span class="spacer"></span>
       <button class="btn" id="again">New scan</button>
     </div>
@@ -294,7 +315,10 @@ footer{color:var(--label3);font-size:12.5px;text-align:center;padding:30px}
 
 <script>
 "use strict";
-const TOKEN = new URLSearchParams(location.search).get("token") || "";
+// The one-time token arrives in the URL; the server swaps it for an HttpOnly
+// session cookie, so remove it from the address bar and history right away.
+let TOKEN = new URLSearchParams(location.search).get("token") || "";
+if (location.search) history.replaceState(null, "", "/");
 const $ = (id) => document.getElementById(id);
 // h(): build DOM safely — every string becomes a text node (never innerHTML).
 function h(tag, attrs, ...kids) {
@@ -302,7 +326,7 @@ function h(tag, attrs, ...kids) {
   if (attrs) for (const [k, v] of Object.entries(attrs)) {
     if (v == null || v === false) continue;
     if (k === "class") el.className = v;
-    else if (k === "style") el.setAttribute("style", v);
+    else if (k === "style") el.style.cssText = v; // CSSOM: allowed under the hashed CSP
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else el.setAttribute(k, v === true ? "" : v);
   }
@@ -313,8 +337,7 @@ function h(tag, attrs, ...kids) {
   return el;
 }
 function fill(el, ...kids) { el.replaceChildren(); for (const k of kids.flat(Infinity)) { if (k == null || k === false) continue; el.appendChild(k instanceof Node ? k : document.createTextNode(String(k))); } }
-const api = (path, opts = {}) => fetch(path + (path.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(TOKEN),
-  { ...opts, headers: { ...(opts.headers || {}), "X-SAdns-Token": TOKEN } });
+const api = (path, opts = {}) => fetch(path, { credentials: "same-origin", ...opts, headers: { ...(opts.headers || {}), "X-SAdns-Token": TOKEN } });
 function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); setTimeout(() => t.classList.remove("show"), 2400); }
 const fmtMs = (v) => v == null || v === 0 ? "—" : (v < 10 ? v.toFixed(1) : Math.round(v)) + " ms";
 const sevLabel = { fail: "FAIL", warn: "WARN", info: "INFO", pass: "PASS", skip: "SKIP" };
@@ -351,6 +374,7 @@ async function init() {
   const r = await api("/api/info");
   if (!r.ok) { document.body.textContent = "Access denied — open the link shown in the SAdns console."; return; }
   info = await r.json();
+  TOKEN = info.token || TOKEN;
   $("ver").textContent = info.tool.version;
   $("host").textContent = info.os + "/" + info.arch;
   fill($("repo"), h("a", { href: info.tool.repo, target: "_blank", rel: "noopener" }, info.tool.repo.replace("https://", "")));
@@ -392,12 +416,13 @@ $("run").addEventListener("click", async () => {
   if (!r.ok) { toast(await r.text()); return; }
   fill($("live")); $("log").textContent = "";
   document.querySelectorAll(".phase").forEach((p) => p.className = "phase");
+  $("cancel").disabled = false;
   show("run"); listen();
 });
 
 function listen() {
   if (es) es.close();
-  es = new EventSource("/api/events?token=" + encodeURIComponent(TOKEN));
+  es = new EventSource("/api/events");
   es.onmessage = (m) => {
     const ev = JSON.parse(m.data);
     const pct = Math.round((ev.progress || 0) * 100);
@@ -430,26 +455,34 @@ function listen() {
 }
 
 $("again").addEventListener("click", () => show("start"));
+$("cancel").addEventListener("click", async () => { $("cancel").disabled = true; await api("/api/cancel", { method: "POST" }); toast("Cancelling…"); });
 $("quit").addEventListener("click", async () => {
   if (!confirm("Stop SAdns? The page will stop working.")) return;
   await api("/api/quit", { method: "POST" }).catch(() => {});
   fill(document.querySelector("main"), h("div", { class: "glass card", style: "padding:40px;text-align:center" }, h("h2", null, "SAdns has stopped."), h("p", { class: "small" }, "You can close this tab.")));
 });
 
-const rq = () => ($("redact").checked ? "&redact=1" : "");
+let privacy = "technical";
+document.querySelectorAll("#privacy button").forEach((b) => b.addEventListener("click", () => {
+  privacy = b.dataset.v;
+  document.querySelectorAll("#privacy button").forEach((x) => x.classList.toggle("on", x === b));
+  if (privacy === "full") toast("Full: your public IP and device details will be included");
+  if (!$("t-report").classList.contains("hidden")) renderReportTab();
+}));
+const rq = () => "&privacy=" + privacy;
 $("copy-ai").addEventListener("click", async () => {
+  if (privacy === "full" && !confirm("Copy the FULL report? It includes your public IP address, hostname and device identifiers.")) return;
   const r = await api("/api/report.md?x=1" + rq());
   const txt = await r.text();
-  try { await navigator.clipboard.writeText(txt); toast("Copied — paste it into your AI assistant"); }
+  try { await navigator.clipboard.writeText(txt); toast(`Copied (${privacy} privacy) — paste it into your AI assistant`); }
   catch { selectTab("report"); toast("Clipboard blocked — select the text in the AI report tab"); }
 });
 function download(ext) {
-  const a = h("a", { href: "/api/report." + ext + "?download=1" + rq() + "&token=" + encodeURIComponent(TOKEN) });
+  const a = h("a", { href: "/api/report." + ext + "?download=1" + rq() });
   document.body.appendChild(a); a.click(); a.remove();
 }
 $("dl-md").addEventListener("click", () => download("md"));
 $("dl-json").addEventListener("click", () => download("json"));
-$("redact").addEventListener("change", () => { if (!$("t-report").classList.contains("hidden")) renderReportTab(); });
 
 const TABS = ["findings", "resolvers", "network", "conn", "system", "routing", "report"];
 document.querySelectorAll(".tab").forEach((t) => t.addEventListener("click", () => selectTab(t.dataset.t)));
@@ -462,8 +495,8 @@ function selectTab(name) {
 // ------------------------------------------------------------------ results
 function renderResults() {
   const s = report.summary;
-  const icon = { healthy: "✓", degraded: "!", problems: "✕" }[s.verdict] || "?";
-  const title = { healthy: "Everything checks out", degraded: "Working, with issues", problems: "Problems found" }[s.verdict] || s.verdict;
+  const icon = { healthy: "✓", degraded: "!", problems: "✕", cancelled: "■" }[s.verdict] || "?";
+  const title = { healthy: "Everything checks out", degraded: "Working, with issues", problems: "Problems found", cancelled: "Scan cancelled" }[s.verdict] || s.verdict;
   const counts = [["f", "fail", s.fail], ["w", "warn", s.warn], ["i", "info", s.info], ["p", "pass", s.pass]];
   $("verdict").className = "glass verdict v-" + s.verdict;
   fill($("verdict"),
@@ -480,10 +513,12 @@ function renderFindings() {
   const want = (f) => fFilter === "all" || (fFilter === "issues" ? f.severity !== "pass" : f.severity === fFilter);
   const btn = (k, label) => h("button", { class: "btn small" + (fFilter === k ? " tinted" : ""), onclick: () => filterFindings(k) }, label);
   const list = report.findings.filter(want);
+  const gaps = report.summary.coverage_gaps || [];
   fill($("t-findings"),
+    gaps.length ? h("div", { class: "glass gaps" }, h("h4", null, "Not fully tested"), h("ul", null, gaps.map((g) => h("li", null, g)))) : null,
     h("div", { class: "filters" }, btn("issues", "Issues & notes"), btn("fail", "Fail"), btn("warn", "Warn"), btn("info", "Info"), btn("pass", "Passed"), btn("all", "All")),
     list.length ? list.map((f) => h("details", { class: "glass finding " + f.severity, open: f.severity === "fail" || f.severity === "warn" },
-      h("summary", null, h("span", { class: "sev " + f.severity }, sevLabel[f.severity]), h("span", { class: "title" }, f.title), h("span", { class: "fid" }, f.id), h("span", { class: "chev" }, "›")),
+      h("summary", null, h("span", { class: "sev " + f.severity }, sevLabel[f.severity]), h("span", { class: "title" }, f.title, f.confidence ? h("span", { class: "conf " + f.confidence, title: "confidence" }, " " + f.confidence) : null), h("span", { class: "fid" }, f.id), h("span", { class: "chev" }, "›")),
       h("div", { class: "body" },
         f.detail ? h("p", null, f.detail) : null,
         (f.evidence || []).length ? h("ul", null, f.evidence.map((e) => h("li", null, e))) : null,
@@ -505,7 +540,7 @@ function renderResolvers() {
       RCOLS.map(([id]) => h("td", null, statusOf(r, id) ? dot(statusOf(r, id)) : "")),
       h("td", { class: "mono" }, fmtMs(r.latency && r.latency.median_ms)),
       h("td", { class: "mono" }, fmtMs(r.uncached_ms)),
-      h("td", null, tag(r.dnssec, "validating", ["inconsistent"], ["not-validating"])),
+      h("td", null, tag(r.dnssec + (r.dnssec_confidence === "suspected" ? " (likely)" : ""), "validating", ["inconsistent"], ["not-validating"])),
       h("td", null, tag(r.nxdomain, "correct", ["hijacked"])),
       h("td", null, tag(r.filtering)),
       h("td", null, tag(r.rebind_protection)),
@@ -521,7 +556,9 @@ function resolverDetail(r) {
   const kv = [["Role / provider", r.role + " / " + r.provider], ["Interface / source", (r.interface || "—") + " / " + (r.local_addr || "—")], ["On local subnet", r.on_link ? "yes" : "no"],
     ["Latency", l.received ? `min ${fmtMs(l.min_ms)} · median ${fmtMs(l.median_ms)} · p90 ${fmtMs(l.p90_ms)} · max ${fmtMs(l.max_ms)} · jitter ${fmtMs(l.jitter_ms)} · ${l.received}/${l.sent} answered` : "—"],
     ["Egress", eg.ip ? `${eg.ip} AS${eg.asn || "?"} ${eg.as_name || ""} (matches provider: ${eg.matches_provider || "n/a"})` : "—"],
-    ["ECS", eg.ecs || "—"], ["Behaviour", `cache=${r.caching} · cookies=${r.cookies} · 0x20=${r.case_0x20} · rebind protection=${r.rebind_protection}`],
+    ["ECS", eg.ecs || "—"], ["Behaviour", `cache=${r.caching} · cookies=${r.cookies} · 0x20=${r.case_0x20} · HTTPS RR=${r.https_rr} · rebind protection=${r.rebind_protection}`],
+    ["Uncached lookups", r.uncached_ms ? `median ${fmtMs(r.uncached_ms)} · p90 ${fmtMs(r.uncached_p90_ms)}` : "—"],
+    ["DNSSEC", `${r.dnssec}${r.dnssec_confidence ? " (" + r.dnssec_confidence + ")" : ""}`],
     ["Canaries / DDR", `DoH canary=${r.canary_doh} · Private Relay=${r.canary_relay}` + ((r.ddr_targets || []).length ? " · DDR → " + r.ddr_targets.join(", ") : "")],
     ["Identity", Object.entries(r.identity || {}).map(([k, v]) => k + "=" + v).join("; ") || "—"]];
   return h("div", null,
@@ -546,9 +583,21 @@ function renderNetwork() {
           h("div", null, "Loss"), h("div", null, `${p.loss_pct}% (${p.received}/${p.sent})`),
           h("div", null, "Min / max"), h("div", null, `${fmtMs(p.min_ms)} / ${fmtMs(p.max_ms)}`),
           h("div", null, "Jitter"), h("div", null, fmtMs(p.jitter_ms))),
-        ok ? h("div", { class: "spark" }, Array.from({ length: p.sent }, (_, i) => i < p.received ? h("i", { style: `height:${Math.max(6, (p.avg_ms / max) * 100)}%` }) : h("i", { class: "lost" }))) : null]);
+        (p.samples_ms || []).length ? h("div", { class: "spark", title: "per packet, in send order" }, p.samples_ms.map((v) => v < 0 ? h("i", { class: "lost", title: "lost" }) : h("i", { title: fmtMs(v), style: `height:${Math.max(6, (v / max) * 100)}%` })))
+          : ok ? h("div", { class: "small", style: "margin-top:10px" }, "packet order not available from this ping tool") : null]);
   };
+  const web = report.web_timings || [];
+  const maxTot = Math.max(1, ...web.map((w) => w.total_ms || 0));
+  const bar = (w) => h("div", { class: "phasebar", title: `DNS ${w.dns_ms} · connect ${w.connect_ms} · TLS ${w.tls_ms} · first byte ${w.ttfb_ms} · download ${w.download_ms} ms` },
+    [["ph-dns", w.dns_ms], ["ph-con", w.connect_ms], ["ph-tls", w.tls_ms], ["ph-ttfb", w.ttfb_ms], ["ph-dl", w.download_ms]].map(([c, v]) => h("i", { class: c, style: `width:${(100 * (v || 0)) / maxTot}%` })));
   fill($("t-network"),
+    web.length ? [h("h3", { class: "sec" }, "Website loading — where the time goes"),
+      h("div", { class: "legend" }, [["DNS", "#BF5AF2"], ["Connect", "var(--tint2)"], ["TLS", "var(--orange)"], ["First byte", "var(--green)"], ["Download", "var(--gray)"]].map(([n, c]) => h("span", { style: "--c:" + c }, n))),
+      tbl(["", "Site", "Family", "Phases", "DNS", "Connect", "TLS", "First byte", "Total", "Protocol"], web.map((w) => h("tr", null,
+        h("td", null, dot(w.ok ? "pass" : "fail")), h("td", { class: "mono" }, w.host), h("td", null, w.family ? "IPv" + w.family : "—"),
+        h("td", null, w.ok ? bar(w) : h("span", { class: "small" }, w.error || "failed")),
+        h("td", { class: "mono" }, fmtMs(w.dns_ms)), h("td", { class: "mono" }, fmtMs(w.connect_ms)), h("td", { class: "mono" }, fmtMs(w.tls_ms)),
+        h("td", { class: "mono" }, fmtMs(w.ttfb_ms)), h("td", { class: "mono" }, fmtMs(w.total_ms)), h("td", { class: "mono" }, [w.proto, w.tls_version].filter(Boolean).join(" ")))))] : null,
     h("h3", { class: "sec" }, "Packet loss & latency"),
     (n.pings || []).length ? h("div", { class: "grid3" }, n.pings.map(pingCard)) : h("p", { class: "small" }, "No ping targets."),
     h("div", { class: "grid2" },

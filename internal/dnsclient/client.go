@@ -74,6 +74,7 @@ type Response struct {
 	ErrClass  string // timeout, refused, unreachable, tls, http, malformed, other
 	TLS       *TLSInfo
 	LocalAddr string
+	Stray     int // UDP packets ignored because they did not match the query
 }
 
 // OK reports whether a parseable response was received.
@@ -134,21 +135,59 @@ func exchangeUDP(ctx context.Context, ep Endpoint, q *dnswire.Msg) Response {
 			return r
 		}
 		m, perr := dnswire.Unpack(buf[:n])
-		if m == nil || m.ID != q.ID || !m.QR {
-			continue // stray or spoofed packet; keep waiting
-		}
-		if !sameQuestion(q, m) {
-			continue
+		if err := Validate(q, m, perr, true); err != nil {
+			if errors.Is(err, ErrMismatch) || m == nil {
+				r.Stray++
+				continue // stray, late or spoofed packet; keep waiting
+			}
+			r.Err, r.ErrClass = err, "malformed"
+			r.RTT = time.Since(start)
+			return r
 		}
 		r.RTT = time.Since(start)
 		r.Size = n
 		r.Msg = m
-		if perr != nil && !m.TC {
-			r.Err = fmt.Errorf("malformed response: %w", perr)
-			r.ErrClass = "malformed"
-		}
 		return r
 	}
+}
+
+// ErrMismatch marks a response that does not answer the query that was sent.
+var ErrMismatch = errors.New("response does not match the query")
+
+// Validate checks that m is a well-formed answer to q. perr is the error
+// returned by dnswire.Unpack. Truncated (TC=1) UDP answers may legitimately be
+// cut mid-record, so allowTrunc tolerates parse errors when TC is set.
+// Responses that fail validation must never be treated as a DNS answer.
+func Validate(q, m *dnswire.Msg, perr error, allowTrunc bool) error {
+	if m == nil {
+		if perr == nil {
+			perr = dnswire.ErrShort
+		}
+		return fmt.Errorf("malformed response: %w", perr)
+	}
+	if !m.QR {
+		return fmt.Errorf("%w: QR flag not set (not a response)", ErrMismatch)
+	}
+	if m.ID != q.ID {
+		return fmt.Errorf("%w: ID %d != %d", ErrMismatch, m.ID, q.ID)
+	}
+	if m.Opcode != q.Opcode {
+		return fmt.Errorf("%w: opcode %d != %d", ErrMismatch, m.Opcode, q.Opcode)
+	}
+	if len(m.Question) == 0 {
+		// Servers may omit the question on errors (FORMERR, REFUSED, BADVERS),
+		// but an answer without a question cannot be attributed.
+		if len(m.Answer) > 0 {
+			return fmt.Errorf("%w: answer without a question section", ErrMismatch)
+		}
+	} else if !sameQuestion(q, m) {
+		return fmt.Errorf("%w: question %s/%s != %s/%s", ErrMismatch,
+			m.Question[0].Name, dnswire.TypeString(m.Question[0].Type), q.Question[0].Name, dnswire.TypeString(q.Question[0].Type))
+	}
+	if perr != nil && !(allowTrunc && m.TC) {
+		return fmt.Errorf("malformed response: %w", perr)
+	}
+	return nil
 }
 
 func sameQuestion(q, m *dnswire.Msg) bool {
@@ -216,16 +255,16 @@ func exchangeStream(ctx context.Context, ep Endpoint, q *dnswire.Msg, useTLS boo
 			return r
 		}
 		m, perr := dnswire.Unpack(buf)
-		if m == nil || m.ID != q.ID {
-			continue
-		}
 		r.RTT = time.Since(start)
+		if err := Validate(q, m, perr, false); err != nil {
+			r.Err, r.ErrClass = err, "malformed"
+			if errors.Is(err, ErrMismatch) {
+				r.ErrClass = "mismatch"
+			}
+			return r
+		}
 		r.Size = len(buf)
 		r.Msg = m
-		if perr != nil {
-			r.Err = fmt.Errorf("malformed response: %w", perr)
-			r.ErrClass = "malformed"
-		}
 		return r
 	}
 }
@@ -306,10 +345,17 @@ func exchangeDoH(ctx context.Context, ep Endpoint, q *dnswire.Msg) Response {
 		r.ErrClass = "http"
 		return r
 	}
-	m, perr := dnswire.Unpack(body)
-	if m == nil {
-		r.Err = fmt.Errorf("malformed DoH body: %w", perr)
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "application/dns-message") {
+		r.Err = fmt.Errorf("unexpected DoH content type %q", ct)
 		r.ErrClass = "malformed"
+		return r
+	}
+	m, perr := dnswire.Unpack(body)
+	if err := Validate(q, m, perr, false); err != nil {
+		r.Err, r.ErrClass = err, "malformed"
+		if errors.Is(err, ErrMismatch) {
+			r.ErrClass = "mismatch"
+		}
 		return r
 	}
 	r.Msg = m

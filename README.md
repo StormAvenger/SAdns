@@ -7,7 +7,8 @@
 - **One file, no install, no dependencies.** It's a single static binary for Windows, macOS and Linux (x86 and ARM). The code uses only the Go standard library, with zero third-party modules.
 - **Browser UI.** Double-click it and a dashboard opens in your browser. Live progress, findings, a resolver matrix and one-click **Copy report for AI**.
 - **Terminal mode.** Use `sadns run` for servers, SSH sessions and automation. It writes Markdown and JSON reports.
-- **Local and private.** Everything runs on your machine. Nothing is uploaded, and the only network traffic is the test queries themselves.
+- **Runs locally.** The report is generated on your machine and never uploaded. The probes themselves do contact public services (listed under [Privacy](#privacy)).
+- **Honest about certainty.** Every finding carries evidence, a fix and a confidence level (confirmed / suspected / inconclusive), and the report lists anything that could not be tested.
 
 ![SAdns findings](docs/img/findings.png)
 
@@ -24,15 +25,16 @@ The interface uses a Liquid Glass–style tinted dark theme; pick a tint with th
 | **Connectivity** | IPv4 and IPv6 reachability (TCP to Cloudflare/Google/Quad9 anycast), "IPv6 configured but broken" detection, public IPs, NAT/CGNAT/double-NAT hints, clock skew, TLS interception |
 | **OS resolver path** | What apps actually experience: lookups through `getaddrinfo`/Windows DNS Client/mDNSResponder, hosts file, search domains, NXDOMAIN rewriting, IPv6-only names, dual-stack (Happy Eyeballs) reachability |
 | **Every configured resolver** (system, stub, gateway, custom) | UDP and TCP/53, A/AAAA, latency (median/p90/jitter/loss), uncached latency, EDNS0, truncation→TCP fallback, large-UDP/fragmentation drops, DNSSEC validation, NXDOMAIN integrity, ad/tracker filtering, server fingerprint (dnsmasq/Unbound/BIND…), upstream egress network |
-| **Protocol compliance & behaviour** | 0x20 case preservation, EDNS version negotiation (BADVERS), DNS Cookies, modern record types (HTTPS/SVCB), 20-query burst / rate limiting, answer caching, DNS-rebinding protection |
+| **Protocol compliance & behaviour** | 0x20 case preservation, EDNS version negotiation (BADVERS), DNS Cookies (two-step), HTTPS/SVCB records against a known-positive control, burst handling (5 → 20 → 20), caching timed against the network RTT (local cache vs upstream cache vs none), DNS-rebinding protection with control names |
 | **Network signals** | DDR (`_dns.resolver.arpa`, the encrypted-DNS discovery Windows 11/Apple use), Firefox DoH canary (`use-application-dns.net`), iCloud Private Relay canary (`mask.icloud.com`), open DoT/DoH ports on local resolvers |
+| **Website loading** | Real HTTPS page loads split into DNS → TCP connect → TLS → first byte → download, over IPv4 and IPv6 separately, so "the internet is slow" can be pinned on DNS, the path, TLS inspection or the server |
 | **Network health** | Ping loss/latency/jitter to the gateway (Wi-Fi/LAN quality) and the internet, path MTU discovery (PPPoE/VPN/tunnel detection), NTP reachability and clock offset, captive-portal / HTTP-proxy detection with the Google/Apple/Microsoft connectivity probes, NAT64/DNS64, local hostname/PTR lookups, WPAD exposure |
 | **Public resolvers** | Cloudflare, Google, Quad9, OpenDNS, AdGuard and Control D, on primary and secondary addresses over IPv4 and IPv6, plus DNS-over-TLS (853) and DNS-over-HTTPS (443) |
 | **Failover** | Redundancy (single resolver, same-host duplicates), dead primaries, mixed local+public resolvers (filtering bypass, broken local names), the OS failover model and worst-case delay |
 | **Interception** | Queries to never-routed documentation addresses (any reply = transparent DNS redirect), egress-ASN verification that "8.8.8.8" is really Google, tampered answers from public resolvers |
 | **Routing** | Kernel route/source selection per resolver, VPN detection, traceroute (IPv4 + IPv6) via the system's own tool |
 
-Each finding comes with **evidence** (the exact test results behind it) and a **suggested fix**. The report also includes the raw command output (`resolvectl`, `scutil --dns`, `ipconfig /all`, route tables…), so an AI can double-check the conclusions.
+Each finding comes with **evidence** (the exact test results behind it), a **suggested fix** and a **confidence**: *confirmed* (independent checks agree), *suspected* (another cause is possible — alternatives are named) or *inconclusive*. DNSSEC is only reported as validating when the rejection is attributable to DNSSEC (Extended DNS Error or a CD=1 bypass), and DNS interception is only *confirmed* by the bogon probe or several independent indicators — an unexpected ASN alone is just *suspected*. The report also includes the raw command output (`resolvectl`, `scutil --dns`, `ipconfig /all`, route tables…), so an AI can double-check the conclusions.
 
 ## Quick start
 
@@ -56,7 +58,7 @@ sadns run                         # full scan, writes sadns-report-<time>.md and
 sadns run --quick                 # primary addresses only, no traceroute
 sadns run --resolver 192.168.1.2  # also test a Pi-hole / AdGuard Home / second router
 sadns run --providers cloudflare,quad9 -6
-sadns run --redact --stdout md    # print a redacted report to stdout
+sadns run --privacy public --stdout md  # print a share-safe report to stdout
 sadns ui --no-browser             # start the UI and print its URL
 ```
 
@@ -68,16 +70,26 @@ sadns ui --no-browser             # start the UI and print its URL
 | `-4` / `-6` | Test only one address family |
 | `--samples N`, `--timeout 2s` | Latency samples and per-query timeout |
 | `--no-traceroute`, `--no-encrypted` | Skip traceroutes / DoT+DoH |
-| `--redact` | Replace your public IPs, IPv6 prefix, hostname and MACs with placeholders |
+| `--privacy LEVEL` | `technical` (default), `public` (also LAN IPs/domains) or `full` — see [Privacy](#privacy) |
 | `--out DIR`, `--stdout md\|json` | Where the report goes |
 
 With no command, SAdns opens the UI on desktops and falls back to terminal mode on headless systems.
 
 ## Privacy
 
-The report contains your network layout: local IPs, public IP, ISP network and DNS servers. That is exactly what someone diagnosing it needs. Tick **Redact personal info** (or pass `--redact`) before sharing it publicly. Resolver addresses are kept, since they're needed for diagnosis.
+**What leaves your machine:** only the test traffic. SAdns sends DNS queries to your configured resolvers, your gateway and the public resolvers you select; ICMP/UDP traceroutes and pings to `1.1.1.1` / `2606:4700:4700::1111`; HTTPS to `one.one.one.one/cdn-cgi/trace` (public IP, clock); NTP to `time.cloudflare.com` and `time.google.com`; HTTP to the Google/Apple/Microsoft connectivity-check URLs; HTTPS page loads from google.com, cloudflare.com, wikipedia.org and github.com; DNS lookups of test names on `nip.io`/`sslip.io`, `dnssec-failed.org`, `ietf.org`, Team Cymru's ASN service and the canary domains. Those services see your IP address, as with any connection. **The report itself is never uploaded.**
 
-The UI server listens only on `127.0.0.1` and uses a random per-launch token. It rejects non-loopback `Host` headers to block DNS-rebinding attacks, and requires a custom header on POST requests so other websites can't drive it.
+**Sharing the report:** choose a privacy level when you copy or download it (default **Technical**):
+
+| Level | Hides | Keeps |
+|---|---|---|
+| **Public-safe** | your public IPs, IPv6 prefix, hostname, MACs, client subnet, **LAN IPs** (→ consistent `[lan-ip-N]` placeholders), internal/search domains, your ISP resolver's IP | public resolver addresses, all test results |
+| **Technical** (default) | your public IPs, IPv6 prefix, hostname, MACs, client subnet | LAN layout (gateway/DNS IPs, domains) an expert needs |
+| **Full** | nothing — only share with people you trust | everything |
+
+Redaction is applied to the final Markdown/JSON, so it also covers raw command output (`ipconfig /all`, `scutil`, `resolvectl`, traceroutes). Tests check that no identifier survives either level. CLI: `--privacy public|technical|full`.
+
+**The local UI** only listens on loopback (`--listen` refuses anything else). It is opened with a one-time token that is immediately swapped for an HttpOnly, SameSite=Strict session cookie and removed from the address bar. POSTs also need a custom header (CSRF), non-loopback `Host` headers are rejected (DNS rebinding), and a hash-pinned Content-Security-Policy allows only the shipped script and stylesheet.
 
 ## How it works
 
@@ -94,7 +106,9 @@ internal/web        embedded single-page UI + loopback HTTP server (Server-Sent 
 internal/mockdns    configurable fake resolver used by tests (healthy, broken, hijacking, filtering)
 ```
 
-All DNS tests talk directly to the IP under test, so each result reflects that server and that network path only.
+All DNS tests talk directly to the IP under test, so each result reflects that server and that network path only. Every response is validated (QR flag, ID, opcode, question, well-formedness) before it counts as an answer.
+
+**OS-path caveat:** on Windows and macOS the "OS resolver path" lookups go through the system resolver APIs. On Linux/BSD the static release builds use Go's own resolver, which reads `resolv.conf` and the hosts file but not glibc `nsswitch` modules (mdns, nss-resolve, LDAP). The report says so in its coverage section.
 
 ## Building from source
 
@@ -108,21 +122,23 @@ make dist         # all release binaries + SHA256SUMS into dist/
 make mock         # start local mock resolvers for offline UI work
 ```
 
-Releases are built by GitHub Actions: push a `v*` tag, or run **Actions → Release → Run workflow** with a version.
+Releases are built by GitHub Actions: push a `v*` tag, or run **Actions → Release → Run workflow** with a version. Each release gets SHA-256 checksums and a build-provenance attestation (`gh attestation verify <file> --repo StormAvenger/SAdns`). CI runs on Linux, Windows and macOS with the race detector, staticcheck and govulncheck.
 
 ## Roadmap
 
-- Path-MTU / fragmentation probing (PPPoE/VPN MTU problems)
-- DNS-over-QUIC, DNS rebinding-protection and DNS64/NAT64 checks
-- Which DNS the router hands out (DHCP option 6 / RA RDNSS) vs what the OS uses
-- Optional read-only UniFi / Pi-hole / AdGuard Home API integration
-- Local-name tests (`.local` mDNS, `.lan`, reverse lookups)
-- Continuous monitor mode and a Docker image (Unraid Community Apps)
-- Code-signed Windows/macOS binaries
+- **Gateway integrations (read-only):** UniFi, Pi-hole and AdGuard Home APIs — firmware, WAN DNS, DNS Shield, content filtering, VLANs, IPv6 settings — for equipment-specific fixes
+- **What the network hands out:** DHCP option 6 and IPv6 RA/RDNSS vs what the OS actually uses; prefix-delegation health
+- **Measured failover:** controlled tests instead of documented-behaviour estimates
+- **More protocols:** DNS-over-QUIC, DoH over HTTP/3, HTTPS/SVCB parameter inspection, negative-caching and stale-answer behaviour
+- **History & monitoring:** baselines, before/after comparison, scheduled JSON output, Docker image for Unraid
+- **Guided diagnostics:** start from a symptom ("Wi-Fi calls drop", "one site won't load") and run the relevant checks
+- Signed/notarised Windows and macOS binaries
+
+See [CHANGELOG.md](CHANGELOG.md) for what is already implemented.
 
 ## Contributing
 
-Issues and pull requests are welcome. If SAdns misdiagnoses your network, open an issue with the (redacted) JSON report attached. That's the fastest way to improve the rules in `internal/analyze`.
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). If SAdns misdiagnoses your network, open an issue with the **Public-safe** JSON report attached; that's the fastest way to improve the rules. Security issues: see [SECURITY.md](SECURITY.md).
 
 ## License
 

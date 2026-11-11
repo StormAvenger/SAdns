@@ -2,29 +2,48 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. v0.1.0). Creates the tag on the current main."
+        required: true
+        default: "v0.1.0"
 
 permissions:
-  contents: write
+  contents: write     # create the release and tag
+  id-token: write     # sign build-provenance attestations
+  attestations: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: false # no third-party modules, nothing to cache
-      - run: go test ./...
-      - run: make dist VERSION=${GITHUB_REF_NAME}
+          cache: false
+      - name: Resolve version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          v="${INPUT_VERSION:-$GITHUB_REF_NAME}"
+          case "$v" in v[0-9]*) ;; *) echo "version must look like v1.2.3" >&2; exit 1 ;; esac
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+      - run: go vet ./... && go test ./...
+      - run: make dist VERSION=$VERSION
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/sadns-*
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          awk -v v="## $VERSION" 'index($0, "## ") == 1 { p = (index($0, v) == 1) } p' CHANGELOG.md > notes.md
+          printf '\nVerify a download: `gh attestation verify <file> --repo %s` and compare with SHA256SUMS.txt.\n' "$GITHUB_REPOSITORY" >> notes.md
           pre=""
-          case "$GITHUB_REF_NAME" in v0.*|*-*) pre="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "SAdns $GITHUB_REF_NAME" \
-            --generate-notes $pre
+          case "$VERSION" in v0.*|*-*) pre="--prerelease" ;; esac
+          gh release create "$VERSION" dist/* --target "$GITHUB_SHA" --title "SAdns $VERSION" --notes-file notes.md $pre

@@ -2,6 +2,8 @@ package probe
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"net/netip"
 	"testing"
 	"time"
@@ -138,15 +140,18 @@ func TestStats(t *testing.T) {
 }
 
 func TestExtraHealthy(t *testing.T) {
-	r := runMock(t, mockdns.Behavior{Caching: true})
-	for _, id := range []string{"case_0x20", "edns_version", "cookie", "https_rr", "burst", "cache"} {
+	r := runMock(t, mockdns.Behavior{Validating: true, SlowFirst: 30 * time.Millisecond})
+	for _, id := range []string{"case_0x20", "edns_version", "cookie", "https_rr", "burst", "cache", "dnssec"} {
 		if s := status(r, id); s != model.Pass {
 			t.Errorf("%s = %s (%s)", id, s, r.Test(id).Detail)
 		}
 	}
-	if r.Case0x20 != "preserved" || r.Cookies != "yes" || r.Rebind != "off" || r.Caching != "yes" ||
-		r.CanaryDoH != "allows-doh" || r.CanaryRelay != "allows-relay" || len(r.DDR) != 0 {
-		t.Errorf("unexpected: %+v", r)
+	if r.Case0x20 != "preserved" || r.Cookies != "yes" || r.Rebind != "off" || r.Caching != "local-cache" || r.HTTPSRR != "records" ||
+		r.CanaryDoH != "allows-doh" || r.CanaryRelay != "allows-relay" || len(r.DDR) != 0 || r.DNSSECConfidence != "confirmed" {
+		t.Errorf("unexpected: cookies=%s rebind=%s caching=%s https=%s dnssec=%s/%s", r.Cookies, r.Rebind, r.Caching, r.HTTPSRR, r.DNSSEC, r.DNSSECConfidence)
+	}
+	if r.ColdMS < 25 {
+		t.Errorf("uncached median %.1f ms should reflect the 30 ms recursion delay", r.ColdMS)
 	}
 }
 
@@ -158,10 +163,48 @@ func TestExtraQuirky(t *testing.T) {
 		}
 	}
 	if r.Rebind != "on" || r.CanaryDoH != "disables-doh" || r.CanaryRelay != "blocks-relay" {
-		t.Errorf("rebind=%s doh=%s relay=%s ddr=%v", r.Rebind, r.CanaryDoH, r.CanaryRelay, r.DDR)
+		t.Errorf("rebind=%s doh=%s relay=%s", r.Rebind, r.CanaryDoH, r.CanaryRelay)
 	}
-	if r.Caching != "no" {
-		t.Errorf("caching=%s", r.Caching)
+}
+
+// Audit scenario: a resolver with no cache forwarding to an upstream that caches.
+func TestCacheClassification(t *testing.T) {
+	cases := []struct {
+		b    mockdns.Behavior
+		want string
+	}{
+		{mockdns.Behavior{SlowFirst: 40 * time.Millisecond}, "local-cache"},
+		{mockdns.Behavior{SlowFirst: 45 * time.Millisecond, SlowRepeat: 15 * time.Millisecond}, "upstream-cache"},
+		{mockdns.Behavior{SlowFirst: 30 * time.Millisecond, SlowRepeat: 30 * time.Millisecond}, "no-cache"},
+		{mockdns.Behavior{NoWildcard: true}, "unknown"},
+	}
+	for _, c := range cases {
+		r := runMock(t, c.b)
+		if r.Caching != c.want {
+			t.Errorf("%+v: caching=%s want %s (%s)", c.b, r.Caching, c.want, r.Test("cache").Detail)
+		}
+	}
+}
+
+// Audit scenario: SERVFAIL for the bogus zone because the whole upstream is broken.
+func TestDNSSECBrokenUpstreamIsInconclusive(t *testing.T) {
+	r := runMock(t, mockdns.Behavior{BrokenUpstream: true})
+	if r.DNSSEC != "inconclusive" || status(r, "dnssec") == model.Pass {
+		t.Fatalf("dnssec=%s status=%s (%s)", r.DNSSEC, status(r, "dnssec"), r.Test("dnssec").Detail)
+	}
+}
+
+func TestRebindInconclusiveWithoutControl(t *testing.T) {
+	r := runMock(t, mockdns.Behavior{NoWildcard: true, RebindProtect: true})
+	if r.Rebind != "unknown" {
+		t.Fatalf("rebind=%s (%s)", r.Rebind, r.Test("rebind").Detail)
+	}
+}
+
+func TestStrippedHTTPSRecords(t *testing.T) {
+	r := runMock(t, mockdns.Behavior{StripHTTPS: true})
+	if r.HTTPSRR != "empty" || status(r, "https_rr") == model.Pass {
+		t.Fatalf("https=%s status=%s", r.HTTPSRR, status(r, "https_rr"))
 	}
 }
 
@@ -203,5 +246,141 @@ func TestNTPTimestamps(t *testing.T) {
 	putNTPTime(b, now)
 	if d := ntpTime(b).Sub(now); d > time.Microsecond || d < -time.Microsecond {
 		t.Fatalf("round trip off by %v", d)
+	}
+}
+
+func TestEvalFamilies(t *testing.T) {
+	cases := []struct {
+		exp     string
+		v4, v6  bool
+		ok      bool
+		missing string
+	}{
+		{"v4+v6", true, true, true, ""},
+		{"v4+v6", true, false, false, "AAAA"}, // audit scenario: IPv4 resolves, AAAA absent
+		{"v4", true, false, true, ""},
+		{"v6", true, false, false, "AAAA"},
+		{"nxdomain", true, false, false, ""},
+	}
+	for _, c := range cases {
+		ok, miss := evalFamilies(c.exp, c.v4, c.v6)
+		if ok != c.ok || miss != c.missing {
+			t.Errorf("%s v4=%v v6=%v: got %v %q", c.exp, c.v4, c.v6, ok, miss)
+		}
+	}
+}
+
+func TestParseCymru(t *testing.T) {
+	for in, want := range map[string]string{
+		"13335 | 172.68.0.0/16 | US | arin | 2014-03-28": "13335",
+		"15169 36040 | 8.8.8.0/24 | US | arin | x":       "15169",
+		"":                   "", // audit scenario: empty TXT must not panic
+		"   ":                "",
+		"|||":                "",
+		"AS13335 | x":        "",
+		"<script> | evil":    "",
+		"99999999999999 | x": "",
+	} {
+		got, ok := parseCymruOrigin(in)
+		if got != want || ok != (want != "") {
+			t.Errorf("%q: got %q %v", in, got, ok)
+		}
+	}
+}
+
+func TestTargetsKeepProviderForSystemResolver(t *testing.T) {
+	e := New(Config{IPv4: true, IPv6: true}, nil)
+	e.sys = &sysinfo.Info{Resolvers: []sysinfo.Resolver{{Addr: "1.1.1.1"}}}
+	ts := e.targets(model.Connectivity{IPv4: model.FamilyConn{Working: true}, IPv6: model.FamilyConn{Working: true}})
+	var found *target
+	n := 0
+	for i := range ts {
+		if ts[i].addr.String() == "1.1.1.1:53" {
+			found = &ts[i]
+			n++
+		}
+	}
+	if n != 1 || found == nil {
+		t.Fatalf("1.1.1.1 tested %d times", n)
+	}
+	if found.role != "system" || found.prov == nil || found.prov.Key != "cloudflare" {
+		t.Fatalf("lost classification: role=%s prov=%v", found.role, found.prov)
+	}
+}
+
+// Audit scenario: DNS64 with a prefix length other than /96.
+func TestNAT64Prefixes(t *testing.T) {
+	cases := map[string]string{
+		"64:ff9b::c000:aa":             "64:ff9b::/96", // well-known prefix
+		"2001:db8:c000:aa::":           "2001:db8::/32",
+		"2001:db8:100:c000:00:aa00::":  "2001:db8:100::/48",
+		"2001:db8:122:344:c0:0:aa00:0": "2001:db8:122:344::/64",
+	}
+	for in, want := range cases {
+		p, ok := nat64Prefix(netip.MustParseAddr(in))
+		if !ok || p.String() != want {
+			t.Errorf("%s: got %v %v want %s", in, p, ok, want)
+		}
+	}
+	if _, ok := nat64Prefix(netip.MustParseAddr("2606:4700::1")); ok {
+		t.Error("ordinary address detected as NAT64")
+	}
+}
+
+func TestPingSequenceOrder(t *testing.T) {
+	linux := "64 bytes from 1.1.1.1: icmp_seq=1 ttl=57 time=11 ms\n64 bytes from 1.1.1.1: icmp_seq=3 ttl=57 time=13 ms\n"
+	got := pingSequence(linux, "1.1.1.1", 3)
+	if len(got) != 3 || got[0] != 11 || got[1] != -1 || got[2] != 13 {
+		t.Fatalf("linux order: %v", got)
+	}
+	win := "\r\nPinging 1.1.1.1 with 32 bytes of data:\r\nRequest timed out.\r\nReply from 1.1.1.1: bytes=32 time=14ms TTL=57\r\nReply from 1.1.1.1: bytes=32 time<1ms TTL=57\r\n\r\nPing statistics for 1.1.1.1:\r\n"
+	got = pingSequence(win, "1.1.1.1", 3)
+	if len(got) != 3 || got[0] != -1 || got[1] != 14 || got[2] != 1 {
+		t.Fatalf("windows order: %v", got)
+	}
+}
+
+func TestValidateNTP(t *testing.T) {
+	req := make([]byte, 48)
+	req[0] = 0x23
+	putNTPTime(req[40:], time.Now())
+	good := func() []byte {
+		b := make([]byte, 48)
+		b[0] = 0x24 // LI 0, VN 4, mode 4
+		b[1] = 2
+		copy(b[24:32], req[40:48])
+		putNTPTime(b[32:], time.Now())
+		putNTPTime(b[40:], time.Now())
+		return b
+	}
+	if err := validateNTP(req, good()); err != nil {
+		t.Fatalf("good reply rejected: %v", err)
+	}
+	for name, mut := range map[string]func([]byte){
+		"client mode":    func(b []byte) { b[0] = 0x23 },
+		"unsynchronised": func(b []byte) { b[0] = 0xE4 },
+		"kiss of death":  func(b []byte) { b[1] = 0 },
+		"bad stratum":    func(b []byte) { b[1] = 16 },
+		"wrong origin":   func(b []byte) { b[24]++ },
+		"zero transmit":  func(b []byte) { copy(b[40:48], make([]byte, 8)) },
+	} {
+		b := good()
+		mut(b)
+		if validateNTP(req, b) == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+}
+
+func TestFetchTimedPhases(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(60 * time.Millisecond)
+		w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+	e := newTestEngine()
+	w := e.fetchTimed(context.Background(), srv.URL+"/x", netip.MustParseAddr("127.0.0.1"))
+	if !w.OK || w.Status != 200 || w.TTFBMS < 55 || w.Bytes != 2 {
+		t.Fatalf("%+v", w)
 	}
 }

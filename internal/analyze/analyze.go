@@ -24,6 +24,19 @@ func (a *az) add(sev, cat, id, title, detail, rec string, ev ...string) {
 	a.f = append(a.f, model.Finding{ID: id, Severity: sev, Category: cat, Title: title, Detail: detail, Recommendation: rec, Evidence: ev})
 }
 
+// conf sets the confidence of the most recently added finding.
+func (a *az) conf(c string) {
+	if len(a.f) > 0 {
+		a.f[len(a.f)-1].Confidence = c
+	}
+}
+
+const (
+	confirmed    = "confirmed"
+	suspected    = "suspected"
+	inconclusive = "inconclusive"
+)
+
 // Run analyzes the report in place, filling Findings and Summary.
 func Run(r *model.Report) {
 	a := &az{r: r}
@@ -34,7 +47,9 @@ func Run(r *model.Report) {
 	a.public()
 	a.resolverExtras()
 	a.netHealth()
+	a.webLoads()
 	a.routing()
+	gaps := a.coverage()
 
 	rank := map[string]int{model.Fail: 0, model.Warn: 1, model.Info: 2, model.Pass: 3}
 	// Within a severity, root causes (connectivity, interception, the system
@@ -73,7 +88,95 @@ func Run(r *model.Report) {
 	} else {
 		s.Headline = "No DNS or connectivity problems detected"
 	}
+	s.Coverage = gaps
+	if r.Cancelled {
+		s.Verdict = "cancelled"
+		s.Headline = "Scan was cancelled — results are incomplete"
+	}
 	r.Summary = s
+}
+
+// coverage lists checks that could not run or could not reach a conclusion.
+func (a *az) coverage() []string {
+	var g []string
+	r := a.r
+	if r.Connectivity.IPv4.Disabled {
+		g = append(g, "IPv4 tests disabled by option")
+	}
+	if r.Connectivity.IPv6.Disabled {
+		g = append(g, "IPv6 tests disabled by option")
+	}
+	skippedV6 := 0
+	for _, x := range r.Resolvers {
+		if t := x.Test("udp_a"); t != nil && t.Status == model.Skip && x.Family == 6 {
+			skippedV6++
+		}
+	}
+	if skippedV6 > 0 {
+		g = append(g, fmt.Sprintf("%d IPv6 public-resolver addresses skipped (no working IPv6)", skippedV6))
+	}
+	for _, p := range r.Network.Pings {
+		if p.Sent == 0 {
+			g = append(g, "ping / packet-loss tests: "+p.Error)
+			break
+		}
+	}
+	for _, m := range r.Network.MTU {
+		if m.Error != "" {
+			g = append(g, fmt.Sprintf("path MTU (IPv%d): %s", m.Family, m.Error))
+		}
+	}
+	for _, t := range r.Routing.Traces {
+		if t.Error != "" && len(t.Hops) == 0 {
+			g = append(g, "traceroute: "+t.Error)
+			break
+		}
+	}
+	if !r.Options.Traceroute {
+		g = append(g, "traceroute disabled by option")
+	}
+	if !r.Options.Encrypted {
+		g = append(g, "DoT/DoH tests disabled by option")
+	}
+	var dnssec, rebind, cache []string
+	for _, x := range r.Resolvers {
+		if x.Role == "public" || !x.Reachable {
+			continue
+		}
+		if x.DNSSEC == "inconclusive" {
+			dnssec = append(dnssec, x.Addr)
+		}
+		if x.Rebind == "unknown" {
+			rebind = append(rebind, x.Addr)
+		}
+		if x.Caching == "unknown" {
+			cache = append(cache, x.Addr)
+		}
+	}
+	if len(dnssec) > 0 {
+		g = append(g, "DNSSEC validation inconclusive for "+strings.Join(dnssec, ", "))
+	}
+	if len(rebind) > 0 {
+		g = append(g, "rebinding-protection test inconclusive for "+strings.Join(rebind, ", ")+" (wildcard control names unreachable)")
+	}
+	if len(cache) > 0 {
+		g = append(g, "caching test inconclusive for "+strings.Join(cache, ", "))
+	}
+	for _, f := range a.f {
+		if f.ID == "INTERCEPT-INCONCLUSIVE" {
+			g = append(g, "interception: egress of public resolvers could not be verified")
+		}
+	}
+	if runtime := r.System; runtime != nil && runtime.OS != "windows" && runtime.OS != "darwin" {
+		// Release builds use Go's own resolver on Linux/BSD: it reads
+		// resolv.conf/hosts but not nsswitch plugins (mDNS, LDAP, systemd-resolved
+		// via nss-resolve), so it can differ from what glibc apps see.
+		g = append(g, "OS-path lookups on Linux/BSD use Go's resolver (resolv.conf + hosts), not glibc nsswitch modules such as mdns or nss-resolve")
+	}
+	if len(g) > 0 {
+		a.add(model.Info, "coverage", "COVERAGE", "Some checks could not run or reach a conclusion", "These parts of the network were not fully tested. Treat the absence of findings in these areas as 'unknown', not 'healthy'.", "Install the missing tools (ping, traceroute) or re-run with both address families to close the gaps.", g...)
+	}
+	return g
 }
 
 func (a *az) resolvers(roles ...string) []*model.ResolverResult {
@@ -105,6 +208,8 @@ func probeEv(ps []model.Probe) []string {
 func (a *az) connectivity() {
 	c := a.r.Connectivity
 	switch {
+	case c.IPv4.Disabled:
+		a.add(model.Info, "connectivity", "CONN-V4-DISABLED", "IPv4 tests disabled by option", "Run without -4/-6 to test both families.", "")
 	case c.IPv4.Working:
 		a.add(model.Pass, "connectivity", "CONN-V4-OK", "IPv4 internet connectivity works", "TCP connections to public anycast hosts succeeded over IPv4.", "", probeEv(c.IPv4.Probes)...)
 	case !c.IPv4.HasAddress:
@@ -116,6 +221,8 @@ func (a *az) connectivity() {
 	}
 
 	switch {
+	case c.IPv6.Disabled:
+		a.add(model.Info, "connectivity", "CONN-V6-DISABLED", "IPv6 tests disabled by option", "Run without -4/-6 to test both families.", "")
 	case c.IPv6.Working:
 		a.add(model.Pass, "connectivity", "CONN-V6-OK", "IPv6 internet connectivity works", "TCP connections to public anycast hosts succeeded over IPv6.", "", probeEv(c.IPv6.Probes)...)
 	case !c.IPv6.HasGlobal && !c.IPv6.HasGateway:
@@ -147,11 +254,13 @@ func (a *az) connectivity() {
 		}
 	}
 	if pi.CGNAT {
-		a.add(model.Info, "connectivity", "CGNAT", "Carrier-grade NAT detected", "An interface holds a 100.64.0.0/10 address, so the ISP (or a tethered phone/cellular link) is NATing you. Inbound connections and some games/VPNs will not work without relaying.", "Normal for cellular/Starlink/T-Mobile Home Internet; ask the ISP for a public IPv4 or use IPv6 for inbound access.", pi.Notes...)
+		a.add(model.Info, "connectivity", "CGNAT", "Carrier-grade NAT likely", "The interface carrying the default route holds a 100.64.0.0/10 address, which ISPs and phone hotspots use for carrier-grade NAT. Inbound connections and some games/VPNs then need relaying. (Overlay VPNs such as Tailscale also use this range; those interfaces are excluded.)", "Normal for cellular/Starlink/T-Mobile Home Internet; ask the ISP for a public IPv4 or use IPv6 for inbound access.", pi.Notes...)
+		a.conf(suspected)
 	}
 	for _, t := range a.r.Routing.Traces {
 		if t.Family == 4 && t.CGNATHops > 0 {
-			a.add(model.Info, "routing", "CGNAT-PATH", "Carrier-grade NAT in the upstream path", "Traceroute crossed 100.64.0.0/10 addresses, which indicates the ISP is using CGNAT.", "Normal for many cellular/fixed-wireless ISPs; affects inbound reachability only.", hopsEv(t)...)
+			a.add(model.Info, "routing", "CGNAT-PATH", "Shared address space (100.64.0.0/10) seen in the ISP path", "Traceroute crossed 100.64.0.0/10 router addresses. Many ISPs use this range for CGNAT, but some also number internal routers with it, so this alone does not prove you are behind CGNAT.", "Compare your router's WAN IP with the public IP in this report: if they differ, you are behind CGNAT.", hopsEv(t)...)
+			a.conf(inconclusive)
 			break
 		}
 	}
@@ -172,6 +281,7 @@ func (a *az) connectivity() {
 		}
 		if lead >= 2 {
 			a.add(model.Warn, "routing", "DOUBLE-NAT", "Possible double NAT", fmt.Sprintf("The first %d responding hops toward the internet are private (RFC 1918) addresses. Usually this means a router behind another router (e.g. ISP modem/router + your own gateway), which complicates port forwarding, VPNs and UPnP.", lead), "Put the ISP device in bridge/passthrough mode, or give your gateway a DMZ/IP passthrough. Ignore if your network intentionally routes through internal subnets.", hopsEv(t)...)
+			a.conf(suspected)
 		}
 		break
 	}
@@ -195,18 +305,20 @@ func hopsEv(t model.Trace) []string {
 // ---------------------------------------------------------------- OS path
 
 func (a *az) osPath() {
-	var okBase, total int
-	var slow []string
-	var ev []string
+	var resolved, total int
+	var slow, ev, missing []string
 	for _, l := range a.r.OSLookups {
 		ev = append(ev, osEv(l))
 		switch l.Expected {
 		case "v4+v6", "v4":
 			total++
-			if l.OK {
-				okBase++
+			if l.Resolved {
+				resolved++
+				if l.Missing != "" {
+					missing = append(missing, fmt.Sprintf("%s: no %s record returned (got %s)", l.Name, l.Missing, strings.Join(l.Addrs, ", ")))
+				}
 			}
-			if l.OK && l.MS > 500 {
+			if l.Resolved && l.MS > 500 {
 				slow = append(slow, fmt.Sprintf("%s %.0f ms", l.Name, l.MS))
 			}
 		case "nxdomain":
@@ -214,18 +326,25 @@ func (a *az) osPath() {
 				a.add(model.Warn, "dns", "OS-NX-HIJACK", "Non-existent domains resolve to an address via the OS resolver", "A random, non-existent name resolved instead of failing. Something in the resolution path (ISP DNS, router, or filtering software) rewrites NXDOMAIN answers. This breaks typo detection, some VPN/split-DNS setups and security tools.", "Find which resolver does it in the per-resolver NXDOMAIN tests and switch away from it (or disable 'search assist'/'error redirect' at the ISP).", osEv(l))
 			}
 		case "v6":
-			if !l.OK && a.r.Connectivity.IPv6.Working {
-				a.add(model.Warn, "dns", "OS-V6ONLY-FAIL", "IPv6-only name did not resolve through the OS", "ipv6.google.com has only AAAA records. It failed even though IPv6 connectivity works, so the OS resolver path is dropping or filtering AAAA lookups.", "Check AAAA filtering on the router/DNS filter (e.g. 'filter-AAAA' in dnsmasq or Pi-hole), and the stub resolver configuration.", osEv(l))
+			if l.Missing != "" || (!l.Resolved && a.r.Connectivity.IPv6.Working) {
+				a.add(model.Warn, "dns", "OS-V6ONLY-FAIL", "IPv6-only name did not resolve through the OS", "ipv6.google.com has only AAAA records. The OS resolver path did not return one, so AAAA lookups are being dropped or filtered.", "Check AAAA filtering on the router/DNS filter (e.g. 'filter-AAAA' in dnsmasq or Pi-hole), and the stub resolver configuration.", osEv(l))
 			}
 		}
 	}
 	switch {
-	case total > 0 && okBase == 0:
+	case total > 0 && resolved == 0:
 		a.add(model.Fail, "dns", "OS-RESOLVE-FAIL", "Applications cannot resolve names", "Every lookup through the operating system resolver failed. Browsers and apps on this device cannot reach anything by name.", "See the system-resolver findings below for the exact cause.", ev...)
-	case okBase < total:
-		a.add(model.Warn, "dns", "OS-RESOLVE-PARTIAL", fmt.Sprintf("Some OS lookups failed (%d of %d)", total-okBase, total), "Name resolution through the OS resolver is intermittent or partially blocked.", "Compare the failing names with the per-resolver results.", ev...)
-	default:
-		a.add(model.Pass, "dns", "OS-RESOLVE-OK", "Name resolution through the OS works", fmt.Sprintf("All %d lookups through the operating system resolver succeeded.", total), "", ev...)
+	case resolved < total:
+		a.add(model.Warn, "dns", "OS-RESOLVE-PARTIAL", fmt.Sprintf("Some OS lookups failed (%d of %d)", total-resolved, total), "Name resolution through the OS resolver is intermittent or partially blocked.", "Compare the failing names with the per-resolver results.", ev...)
+	case total > 0 && len(missing) == 0:
+		a.add(model.Pass, "dns", "OS-RESOLVE-OK", "Name resolution through the OS works", fmt.Sprintf("All %d lookups through the operating system resolver succeeded and returned every expected record family.", total), "", ev...)
+	}
+	if len(missing) > 0 {
+		sev, why := model.Warn, "The OS resolver path returned these names without records they are known to publish. AAAA records are being filtered (router/Pi-hole 'filter AAAA', a stub resolver policy) or lost, so apps cannot use IPv6 for them."
+		if !a.r.Connectivity.IPv6.HasGlobal {
+			sev, why = model.Info, "These dual-stack names came back without AAAA records. This host has no global IPv6 address, and some OS resolvers deliberately omit AAAA in that case (AI_ADDRCONFIG), so this is expected here."
+		}
+		a.add(sev, "dns", "OS-FAMILY-MISSING", "Expected IPv6 (AAAA) records missing from OS lookups", why, "Compare with the per-resolver AAAA test: if resolvers return AAAA but the OS does not, the filtering is local.", missing...)
 	}
 	if len(slow) > 0 {
 		a.add(model.Warn, "performance", "OS-RESOLVE-SLOW", "Slow lookups through the OS resolver", "Some names took more than 500 ms to resolve through the OS. Common causes: a dead primary resolver (failover delay), a slow upstream, or IPv6 resolvers timing out first.", "Look at the failover section and the per-resolver latency table.", slow...)
@@ -433,7 +552,17 @@ func (a *az) resolverQuality(r *model.ResolverResult, prefix string) {
 	switch r.DNSSEC {
 	case "validating":
 		if prefix == "SYS" {
-			a.add(model.Pass, "security", "SYS-DNSSEC-OK", "DNSSEC is validated by "+who, "Forged or tampered DNS answers for signed domains are rejected.", "", resEv(r, "dnssec")...)
+			d := "Forged or tampered DNS answers for signed domains are rejected."
+			if r.DNSSECConfidence == suspected {
+				d += " (Likely: the resolver did not honour CD=1, so the cause of its SERVFAIL could not be independently confirmed.)"
+			}
+			a.add(model.Pass, "security", "SYS-DNSSEC-OK", "DNSSEC is validated by "+who, d, "", resEv(r, "dnssec")...)
+			a.conf(r.DNSSECConfidence)
+		}
+	case "inconclusive":
+		if prefix == "SYS" {
+			a.add(model.Info, "security", "SYS-DNSSEC-UNKNOWN", "DNSSEC validation could not be determined for "+who, "The evidence was missing or contradictory (see the DNSSEC test detail). A SERVFAIL on its own is not treated as proof of validation.", "", resEv(r, "dnssec")...)
+			a.conf(inconclusive)
 		}
 	case "not-validating":
 		if prefix == "SYS" {
@@ -558,14 +687,22 @@ func (a *az) interception() {
 	}
 	if in.Detected {
 		a.add(model.Fail, "security", "INTERCEPT-BOGON", "DNS traffic is being transparently intercepted", "A query sent to an address that cannot host a DNS server (TEST-NET / documentation range) received an answer. A router, ISP or security appliance is redirecting all port-53 traffic to its own resolver, so the public resolvers you think you are using are not the ones answering.", "If it is your own router (e.g. a 'force DNS' / DNS redirect NAT rule, UniFi Content Filtering, Pi-hole interception) this may be intentional. Otherwise use DoH/DoT to bypass, and ask the ISP.", ev...)
+		a.conf(confirmed)
+		a.intercepted = true
 	}
 
+	// Indicators are graded. Strong: things a genuine public resolver never
+	// does (rewrite NXDOMAIN, fail example.com, several providers sharing one
+	// egress). Weak: things with innocent explanations (egress ASN differs —
+	// providers use partner networks/new ASNs; same software string as the
+	// local resolver — both could simply run the same software).
 	pub := a.resolvers("public")
-	var mismatch []string
+	var strong, weak []string
+	strongAddrs := map[string]bool{}
 	egressByProv := map[string]map[string]bool{}
 	for _, r := range pub {
 		if r.Egress.Matches == "no" {
-			mismatch = append(mismatch, fmt.Sprintf("%s %s answered via AS%s %s (egress %s)", r.Label, r.Addr, r.Egress.ASN, r.Egress.ASName, r.Egress.IP))
+			weak = append(weak, fmt.Sprintf("%s %s was resolved from AS%s %s (egress %s), not the provider's usual network", r.Label, r.Addr, r.Egress.ASN, r.Egress.ASName, r.Egress.IP))
 		}
 		if r.Egress.IP != "" {
 			if egressByProv[r.Egress.IP] == nil {
@@ -581,10 +718,12 @@ func (a *az) interception() {
 				ks = append(ks, k)
 			}
 			sort.Strings(ks)
-			mismatch = append(mismatch, fmt.Sprintf("different providers (%s) share the same egress %s", strings.Join(ks, ", "), ip))
+			strong = append(strong, fmt.Sprintf("different providers (%s) all reached authoritative servers from the same address %s", strings.Join(ks, ", "), ip))
+			for _, k := range ks {
+				strongAddrs["egress:"+k] = true
+			}
 		}
 	}
-	// Public resolver returning the same CHAOS identity as the local resolver.
 	localIDs := map[string]bool{}
 	for _, r := range a.resolvers("system", "stub", "gateway") {
 		if v := r.Identity["version.bind"]; v != "" {
@@ -593,19 +732,28 @@ func (a *az) interception() {
 	}
 	for _, r := range pub {
 		if v := r.Identity["version.bind"]; v != "" && localIDs[v] {
-			mismatch = append(mismatch, fmt.Sprintf("%s %s reports the same software version as your local resolver (%q)", r.Label, r.Addr, v))
+			weak = append(weak, fmt.Sprintf("%s %s reports the same software version as your local resolver (%q)", r.Label, r.Addr, v))
 		}
 		if r.NXDOMAIN == "hijacked" {
-			mismatch = append(mismatch, fmt.Sprintf("%s %s rewrote NXDOMAIN (public resolvers never do this)", r.Label, r.Addr))
+			strong = append(strong, fmt.Sprintf("%s %s rewrote NXDOMAIN (public resolvers never do this)", r.Label, r.Addr))
+			strongAddrs[r.Addr] = true
 		}
 		if t := r.Test("udp_a"); t != nil && r.Reachable && t.Status == model.Warn && !r.Filters() {
-			mismatch = append(mismatch, fmt.Sprintf("%s %s returned %s for example.com (a public resolver always resolves it)", r.Label, r.Addr, t.Rcode))
+			strong = append(strong, fmt.Sprintf("%s %s returned %s for example.com (a public resolver always resolves it)", r.Label, r.Addr, t.Rcode))
+			strongAddrs[r.Addr] = true
 		}
 	}
-	a.intercepted = in.Detected || len(mismatch) > 0
-	if len(mismatch) > 0 {
-		a.add(model.Fail, "security", "INTERCEPT-PUBLIC", "Queries to public resolvers are answered by someone else", "Queries addressed to well-known public resolvers came back from the wrong network. This is DNS hijacking/redirection somewhere between this host and the internet.", "Check the router for DNS redirect/'force local DNS' rules. To bypass an ISP-level hijack, use encrypted DNS (DoH/DoT).", mismatch...)
-	} else if !in.Detected && len(pub) > 0 {
+	all := append(append([]string{}, strong...), weak...)
+	switch {
+	case len(strongAddrs) >= 2 || (in.Detected && len(all) > 0):
+		a.intercepted = true
+		a.add(model.Fail, "security", "INTERCEPT-PUBLIC", "Queries to public resolvers are answered by someone else", "Several independent checks show that queries addressed to well-known public resolvers are answered by a different system. This is DNS redirection somewhere between this host and the internet.", "Check the router for DNS redirect/'force local DNS' rules. To bypass an ISP-level redirect, use encrypted DNS (DoH/DoT).", all...)
+		a.conf(confirmed)
+	case len(strong) > 0 || len(weak) > 0:
+		a.intercepted = in.Detected || len(strong) > 0
+		a.add(model.Warn, "security", "INTERCEPT-SUSPECTED", "Possible DNS interception (not confirmed)", "Some answers from public resolvers do not look like they came from the provider. This can be interception, but there are innocent explanations: providers sometimes resolve from partner networks or newly acquired ASNs, the ASN database can lag, and two resolvers can run identical software.", "Confirm with the bogon probe (already run — see Interception & integrity) and by comparing DoH results, which cannot be transparently redirected. If DoH answers differ from plain DNS, interception is real.", all...)
+		a.conf(suspected)
+	case !in.Detected && len(pub) > 0:
 		checked := 0
 		for _, r := range pub {
 			if r.Egress.Matches == "yes" {
@@ -614,8 +762,10 @@ func (a *az) interception() {
 		}
 		if checked > 0 {
 			a.add(model.Pass, "security", "INTERCEPT-NONE", "No DNS interception detected", fmt.Sprintf("Bogon probes got no reply, and %d public resolver answers were verified to come from the provider's own network (egress ASN check).", checked), "", ev...)
+			a.conf(confirmed)
 		} else {
 			a.add(model.Info, "security", "INTERCEPT-INCONCLUSIVE", "DNS interception check was inconclusive", "Bogon probes got no reply, but no public resolver answer could be traced back to its provider's network (the egress echo names or the ASN lookup did not answer), so redirection cannot be ruled out.", "Re-run when the network is stable; check the egress table in the report.", ev...)
+			a.conf(inconclusive)
 		}
 	}
 	// ECS privacy note for local upstream.

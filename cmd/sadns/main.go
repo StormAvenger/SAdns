@@ -20,6 +20,7 @@ import (
 	"github.com/StormAvenger/SAdns/internal/analyze"
 	"github.com/StormAvenger/SAdns/internal/model"
 	"github.com/StormAvenger/SAdns/internal/probe"
+	"github.com/StormAvenger/SAdns/internal/report"
 	"github.com/StormAvenger/SAdns/internal/web"
 )
 
@@ -77,7 +78,8 @@ func realMain(args []string) int {
 		only4      = fs.Bool("4", false, "IPv4 only")
 		only6      = fs.Bool("6", false, "IPv6 only")
 		outDir     = fs.String("out", ".", "directory for report files (run mode)")
-		redact     = fs.Bool("redact", false, "mask public IPs, IPv6 prefixes, hostname and MACs in report files")
+		privacy    = fs.String("privacy", "technical", "report privacy: full (nothing hidden), technical (hide public IPs, IPv6 prefix, hostname, MACs), public (also LAN IPs and internal domains)")
+		redact     = fs.Bool("redact", false, "shortcut for --privacy public")
 		stdoutFmt  = fs.String("stdout", "", "print the report to stdout instead of writing files: md or json (run mode)")
 		listen     = fs.String("listen", "127.0.0.1:0", "UI listen address (loopback only)")
 		noBrowser  = fs.Bool("no-browser", false, "UI mode: print the URL instead of opening a browser")
@@ -155,7 +157,11 @@ func realMain(args []string) int {
 		return 0
 	}
 
-	return runCLI(ctx, cfg, tool, *outDir, *redact, *stdoutFmt)
+	level := *privacy
+	if *redact {
+		level = "public"
+	}
+	return runCLI(ctx, cfg, tool, *outDir, level, *stdoutFmt)
 }
 
 func flagSet(fs *flag.FlagSet, name string) bool {
@@ -168,7 +174,7 @@ func flagSet(fs *flag.FlagSet, name string) bool {
 	return set
 }
 
-func runCLI(ctx context.Context, cfg probe.Config, tool model.ToolInfo, outDir string, redact bool, stdoutFmt string) int {
+func runCLI(ctx context.Context, cfg probe.Config, tool model.ToolInfo, outDir string, privacy string, stdoutFmt string) int {
 	quiet := stdoutFmt != ""
 	logf := func(f string, a ...any) { fmt.Fprintf(os.Stderr, f+"\n", a...) }
 	if !quiet {
@@ -199,10 +205,10 @@ func runCLI(ctx context.Context, cfg probe.Config, tool model.ToolInfo, outDir s
 
 	switch stdoutFmt {
 	case "md", "markdown":
-		os.Stdout.Write(web.Render(rep, redact, "md"))
+		os.Stdout.Write(web.Render(rep, privacy, "md"))
 		return 0
 	case "json":
-		os.Stdout.Write(web.Render(rep, redact, "json"))
+		os.Stdout.Write(web.Render(rep, privacy, "json"))
 		return 0
 	case "":
 	default:
@@ -223,17 +229,17 @@ func runCLI(ctx context.Context, cfg probe.Config, tool model.ToolInfo, outDir s
 		logf("cannot create %s: %v", outDir, err)
 		return 1
 	}
-	base := filepath.Join(outDir, web.FileBase(rep))
+	base := filepath.Join(outDir, web.FileBase(rep)+"-"+report.ParsePrivacy(privacy))
 	for _, ext := range []string{"md", "json"} {
 		p := base + "." + ext
-		if err := os.WriteFile(p, web.Render(rep, redact, ext), 0o644); err != nil {
+		if err := os.WriteFile(p, web.Render(rep, privacy, ext), 0o644); err != nil {
 			logf("write %s: %v", p, err)
 			return 1
 		}
 		abs, _ := filepath.Abs(p)
 		logf("Wrote %s", abs)
 	}
-	logf("\nPaste the .md file into your AI assistant for a diagnosis.")
+	logf("\nPaste the .md file into your AI assistant for a diagnosis (privacy level: %s; use --privacy public before posting it publicly).", report.ParsePrivacy(privacy))
 	pauseIfDoubleClicked()
 	return 0
 }

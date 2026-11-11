@@ -62,9 +62,14 @@ func (e *Engine) connectivity(ctx context.Context) model.Connectivity {
 	c.IPv4.HasGateway = e.sys.HasGateway(4)
 	c.IPv6.HasGateway = e.sys.HasGateway(6)
 
+	c.IPv4.Disabled, c.IPv6.Disabled = !e.cfg.IPv4, !e.cfg.IPv6
 	probes := make([]model.Probe, len(connTargets))
 	var wg sync.WaitGroup
 	for i, t := range connTargets {
+		if a := netip.MustParseAddr(t.addr); (a.Is4() && !e.cfg.IPv4) || (a.Is6() && !e.cfg.IPv6) {
+			probes[i] = model.Probe{Target: t.addr, Name: t.name, Family: map[bool]int{true: 4, false: 6}[a.Is4()], Error: "disabled by option", ErrClass: "disabled"}
+			continue
+		}
 		wg.Add(1)
 		go func(i int, addr, name string) {
 			defer wg.Done()
@@ -90,14 +95,45 @@ func (e *Engine) publicIP(ctx context.Context, conn model.Connectivity) model.Pu
 	var p model.PublicIP
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); p.IPv4 = e.trace(ctx, "1.1.1.1", conn.IPv4.Working) }()
-	go func() { defer wg.Done(); p.IPv6 = e.trace(ctx, "2606:4700:4700::1111", conn.IPv6.Working) }()
+	go func() {
+		defer wg.Done()
+		if e.cfg.IPv4 {
+			p.IPv4 = e.trace(ctx, "1.1.1.1", conn.IPv4.Working)
+		} else {
+			p.IPv4.Error = "disabled by option"
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if e.cfg.IPv6 {
+			p.IPv6 = e.trace(ctx, "2606:4700:4700::1111", conn.IPv6.Working)
+		} else {
+			p.IPv6.Error = "disabled by option"
+		}
+	}()
 	wg.Wait()
+	// CGNAT: only an address in 100.64.0.0/10 on the interface that carries
+	// the default route counts. Overlays (Tailscale, ZeroTier, WireGuard…)
+	// use the same range on their own interfaces and must not trigger it.
+	gwIf := map[string]bool{}
+	for _, g := range e.sys.Gateways {
+		if g.Family == 4 {
+			gwIf[g.Interface] = true
+		}
+	}
 	for _, ifc := range e.sys.Interfaces {
 		for _, a := range ifc.Addrs {
-			if a.Scope == "cgnat" && ifc.Up {
+			if a.Scope != "cgnat" || !ifc.Up {
+				continue
+			}
+			switch {
+			case ifc.LikelyVPN:
+				p.Notes = append(p.Notes, fmt.Sprintf("interface %s has %s from 100.64.0.0/10 — an overlay/VPN address (e.g. Tailscale), not ISP CGNAT", ifc.Name, a.IP))
+			case gwIf[ifc.Name] || len(gwIf) == 0:
 				p.CGNAT = true
-				p.Notes = append(p.Notes, fmt.Sprintf("interface %s has carrier-grade NAT address %s", ifc.Name, a.IP))
+				p.Notes = append(p.Notes, fmt.Sprintf("default-route interface %s has carrier-grade NAT address %s", ifc.Name, a.IP))
+			default:
+				p.Notes = append(p.Notes, fmt.Sprintf("interface %s has %s from 100.64.0.0/10 but does not carry the default route", ifc.Name, a.IP))
 			}
 		}
 	}
@@ -159,7 +195,7 @@ func (e *Engine) trace(ctx context.Context, ip string, familyWorking bool) model
 			}
 		}
 		ti.IP, ti.Colo, ti.Loc, ti.Warp, ti.TLS = kv["ip"], kv["colo"], kv["loc"], kv["warp"], kv["tls"]
-		if ts, perr := strconv.ParseFloat(kv["ts"], 64); perr == nil {
+		if ts, perr := strconv.ParseFloat(kv["ts"], 64); perr == nil && strings.HasPrefix(ti.Method, "https://") && ti.Error == "" {
 			server := time.Unix(0, int64(ts*1e9))
 			ti.ClockSkew = round2(recv.Sub(server).Seconds())
 			ti.ClockKnown = true
@@ -237,6 +273,7 @@ func (e *Engine) osLookups(ctx context.Context) []model.OSLookup {
 					l.OK = true
 				}
 			} else {
+				l.Resolved = true
 				for _, a := range addrs {
 					a = a.Unmap()
 					l.Addrs = append(l.Addrs, a.String())
@@ -246,13 +283,41 @@ func (e *Engine) osLookups(ctx context.Context) []model.OSLookup {
 						l.HasV6 = true
 					}
 				}
-				l.OK = expect != "nxdomain"
+				l.OK, l.Missing = evalFamilies(expect, l.HasV4, l.HasV6)
 			}
 			out[i] = l
 		}(i, s.name, s.purpose, s.expect)
 	}
 	wg.Wait()
 	return out
+}
+
+// evalFamilies checks a successful lookup against the record families the
+// name is known to publish. A name expected to be dual-stack that comes back
+// IPv4-only is NOT a pass: it means AAAA records are being filtered or lost.
+func evalFamilies(expect string, v4, v6 bool) (bool, string) {
+	switch expect {
+	case "nxdomain":
+		return false, "" // it resolved, but must not
+	case "v4+v6":
+		switch {
+		case !v4 && !v6:
+			return false, "A, AAAA"
+		case !v6:
+			return false, "AAAA"
+		case !v4:
+			return false, "A"
+		}
+	case "v4":
+		if !v4 {
+			return false, "A"
+		}
+	case "v6":
+		if !v6 {
+			return false, "AAAA"
+		}
+	}
+	return true, ""
 }
 
 var dualStackHosts = []string{"www.google.com", "cloudflare.com", "www.wikipedia.org"}
@@ -268,7 +333,7 @@ func (e *Engine) dualStack(ctx context.Context, lookups []model.OSLookup) []mode
 				l = &lookups[i]
 			}
 		}
-		if l == nil || !l.OK {
+		if l == nil || !l.Resolved {
 			continue
 		}
 		wg.Add(1)
@@ -372,17 +437,35 @@ func (e *Engine) asnLookup(ctx context.Context, via netip.AddrPort, ip string) (
 	if !r.OK() || len(r.Msg.TXT()) == 0 {
 		return
 	}
-	// "13335 | 172.68.0.0/16 | US | arin | 2014-03-28"
-	asn = strings.TrimSpace(strings.Fields(strings.Split(r.Msg.TXT()[0], "|")[0] + " ")[0])
-	if asn == "" {
-		return
+	asn, ok := parseCymruOrigin(r.Msg.TXT()[0])
+	if !ok {
+		return "", ""
 	}
 	r = dnsclient.Exchange(ctx, ep, dnswire.NewQuery("AS"+asn+".asn.cymru.com", dnswire.TypeTXT, dnswire.QueryOpts{EDNS: true}), e.cfg.Timeout)
 	if r.OK() && len(r.Msg.TXT()) > 0 {
 		parts := strings.Split(r.Msg.TXT()[0], "|")
-		name = strings.TrimSpace(parts[len(parts)-1])
+		if len(parts) >= 5 {
+			name = strings.TrimSpace(parts[len(parts)-1])
+		}
 	}
-	return
+	return asn, name
+}
+
+// parseCymruOrigin extracts the first origin ASN from a Team Cymru answer such
+// as "13335 | 172.68.0.0/16 | US | arin | 2014-03-28". Anything malformed is
+// treated as "unknown", never trusted and never allowed to panic.
+func parseCymruOrigin(txt string) (string, bool) {
+	first, _, _ := strings.Cut(txt, "|")
+	f := strings.Fields(first) // multi-origin prefixes list several ASNs
+	if len(f) == 0 || len(f[0]) > 10 {
+		return "", false
+	}
+	for _, c := range f[0] {
+		if c < '0' || c > '9' {
+			return "", false
+		}
+	}
+	return f[0], true
 }
 
 // scopeOf classifies a hop address.

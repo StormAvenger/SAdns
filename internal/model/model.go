@@ -38,7 +38,9 @@ type Report struct {
 	Failover     Failover         `json:"failover"`
 	Routing      Routing          `json:"routing"`
 	Network      NetHealth        `json:"network_health"`
-	Redacted     bool             `json:"redacted"`
+	Web          []WebTiming      `json:"web_timings"`
+	Privacy      string           `json:"privacy"`             // full, technical, public
+	Cancelled    bool             `json:"cancelled,omitempty"` // run stopped early: results incomplete
 }
 
 // ToolInfo identifies the build that produced the report.
@@ -71,6 +73,10 @@ type Summary struct {
 	Info     int    `json:"info"`
 	Warn     int    `json:"warn"`
 	Fail     int    `json:"fail"`
+	// Coverage lists checks that could not run (missing tools, disabled
+	// families, unreachable test services) so a clean result is not mistaken
+	// for a complete one.
+	Coverage []string `json:"coverage_gaps,omitempty"`
 }
 
 // Finding is an analyzed conclusion with evidence and a suggested fix.
@@ -82,6 +88,9 @@ type Finding struct {
 	Detail         string   `json:"detail"`
 	Evidence       []string `json:"evidence,omitempty"`
 	Recommendation string   `json:"recommendation,omitempty"`
+	// Confidence: confirmed (independent checks agree), suspected (another
+	// cause is possible), inconclusive (evidence missing or contradictory).
+	Confidence string `json:"confidence,omitempty"`
 }
 
 // Probe is a single TCP connectivity attempt.
@@ -98,6 +107,7 @@ type Probe struct {
 
 // FamilyConn summarises one IP family.
 type FamilyConn struct {
+	Disabled   bool    `json:"disabled_by_option,omitempty"`
 	HasAddress bool    `json:"has_address"`
 	HasGlobal  bool    `json:"has_global_address"`
 	HasGateway bool    `json:"has_default_route"`
@@ -145,6 +155,8 @@ type OSLookup struct {
 	MS       float64  `json:"ms"`
 	Error    string   `json:"error,omitempty"`
 	Expected string   `json:"expected,omitempty"`
+	Resolved bool     `json:"resolved"`          // the lookup itself succeeded
+	Missing  string   `json:"missing,omitempty"` // expected record family absent: "A", "AAAA"
 }
 
 // DualStack checks whether a dual-stack host is reachable over both families.
@@ -197,34 +209,37 @@ type Egress struct {
 
 // ResolverResult holds every test for one resolver address.
 type ResolverResult struct {
-	Label       string            `json:"label"`
-	Provider    string            `json:"provider"`
-	ProviderKey string            `json:"provider_key"`
-	Role        string            `json:"role"` // system, gateway, public, custom
-	Addr        string            `json:"addr"`
-	Family      int               `json:"family"`
-	Primary     bool              `json:"primary"`
-	Interface   string            `json:"interface,omitempty"`
-	LocalAddr   string            `json:"local_addr,omitempty"`
-	OnLink      bool              `json:"on_link"`
-	Reachable   bool              `json:"reachable"`
-	Latency     Latency           `json:"latency"`
-	ColdMS      float64           `json:"uncached_ms,omitempty"`
-	DNSSEC      string            `json:"dnssec"`    // validating, not-validating, inconclusive, n/a
-	Filtering   string            `json:"filtering"` // blocks-ads, no-ad-blocking, unknown
-	NXDOMAIN    string            `json:"nxdomain"`  // correct, hijacked, unknown
-	Software    string            `json:"software,omitempty"`
-	Rebind      string            `json:"rebind_protection"` // on, off, unknown
-	Caching     string            `json:"caching"`           // yes, no, unknown
-	Cookies     string            `json:"cookies"`           // yes, no
-	Case0x20    string            `json:"case_0x20"`         // preserved, broken, unknown
-	DDR         []string          `json:"ddr_targets,omitempty"`
-	CanaryDoH   string            `json:"canary_doh"`   // disables-doh, allows-doh, unknown
-	CanaryRelay string            `json:"canary_relay"` // blocks-relay, allows-relay, unknown
-	OpenPorts   []int             `json:"encrypted_ports_open,omitempty"`
-	Identity    map[string]string `json:"identity,omitempty"`
-	Egress      Egress            `json:"egress"`
-	Tests       []TestResult      `json:"tests"`
+	Label            string            `json:"label"`
+	Provider         string            `json:"provider"`
+	ProviderKey      string            `json:"provider_key"`
+	Role             string            `json:"role"` // system, gateway, public, custom
+	Addr             string            `json:"addr"`
+	Family           int               `json:"family"`
+	Primary          bool              `json:"primary"`
+	Interface        string            `json:"interface,omitempty"`
+	LocalAddr        string            `json:"local_addr,omitempty"`
+	OnLink           bool              `json:"on_link"`
+	Reachable        bool              `json:"reachable"`
+	Latency          Latency           `json:"latency"`
+	ColdMS           float64           `json:"uncached_ms,omitempty"`
+	DNSSEC           string            `json:"dnssec"`                      // validating, not-validating, inconsistent, inconclusive, n/a
+	DNSSECConfidence string            `json:"dnssec_confidence,omitempty"` // confirmed, suspected, inconclusive
+	HTTPSRR          string            `json:"https_rr"`                    // records, empty, error, unknown
+	ColdP90MS        float64           `json:"uncached_p90_ms,omitempty"`
+	Filtering        string            `json:"filtering"` // blocks-ads, no-ad-blocking, unknown
+	NXDOMAIN         string            `json:"nxdomain"`  // correct, hijacked, unknown
+	Software         string            `json:"software,omitempty"`
+	Rebind           string            `json:"rebind_protection"` // on, off, unknown
+	Caching          string            `json:"caching"`           // local-cache, upstream-cache, no-cache, unknown
+	Cookies          string            `json:"cookies"`           // yes, no
+	Case0x20         string            `json:"case_0x20"`         // preserved, broken, unknown
+	DDR              []string          `json:"ddr_targets,omitempty"`
+	CanaryDoH        string            `json:"canary_doh"`   // disables-doh, allows-doh, unknown
+	CanaryRelay      string            `json:"canary_relay"` // blocks-relay, allows-relay, unknown
+	OpenPorts        []int             `json:"encrypted_ports_open,omitempty"`
+	Identity         map[string]string `json:"identity,omitempty"`
+	Egress           Egress            `json:"egress"`
+	Tests            []TestResult      `json:"tests"`
 }
 
 // Filters reports whether this is a public provider that filters by design.
@@ -319,6 +334,7 @@ type Ping struct {
 	AvgMS    float64       `json:"avg_ms"`
 	MaxMS    float64       `json:"max_ms"`
 	JitterMS float64       `json:"jitter_ms"`
+	Samples  []float64     `json:"samples_ms,omitempty"` // per packet in send order; -1 = lost; absent if order unknown
 	Error    string        `json:"error,omitempty"`
 	Raw      *execx.Output `json:"raw,omitempty"`
 }
@@ -362,4 +378,24 @@ type NAT64 struct {
 	Detected bool     `json:"detected"`
 	Prefixes []string `json:"prefixes,omitempty"`
 	Detail   string   `json:"detail"`
+}
+
+// WebTiming breaks one HTTPS page load into phases (one family, fresh connection).
+type WebTiming struct {
+	URL        string  `json:"url"`
+	Host       string  `json:"host"`
+	Family     int     `json:"family"`
+	IP         string  `json:"ip,omitempty"`
+	OK         bool    `json:"ok"`
+	Status     int     `json:"status,omitempty"`
+	Proto      string  `json:"proto,omitempty"`
+	TLSVersion string  `json:"tls_version,omitempty"`
+	DNSMS      float64 `json:"dns_ms"`
+	ConnectMS  float64 `json:"connect_ms"`
+	TLSMS      float64 `json:"tls_ms"`
+	TTFBMS     float64 `json:"ttfb_ms"`
+	DownloadMS float64 `json:"download_ms"`
+	TotalMS    float64 `json:"total_ms"`
+	Bytes      int64   `json:"bytes,omitempty"`
+	Error      string  `json:"error,omitempty"`
 }

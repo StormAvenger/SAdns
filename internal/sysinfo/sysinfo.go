@@ -136,7 +136,7 @@ func interfaces() []Interface {
 
 func likelyVPN(name string) bool {
 	n := strings.ToLower(name)
-	for _, p := range []string{"tun", "tap", "utun", "wg", "tailscale", "zt", "ppp", "ipsec", "vpn", "wireguard", "nordlynx", "proton", "mullvad", "openvpn", "cloudflare warp", "warp"} {
+	for _, p := range []string{"tun", "tap", "utun", "wg", "tailscale", "zt", "zerotier", "ppp", "ipsec", "vpn", "wireguard", "nordlynx", "proton", "mullvad", "openvpn", "cloudflare warp", "cloudflarewarp", "warp", "netbird", "nebula", "headscale", "anyconnect", "globalprotect", "pangp", "fortinet", "forticlient"} {
 		if strings.HasPrefix(n, p) || strings.Contains(n, p) {
 			return true
 		}

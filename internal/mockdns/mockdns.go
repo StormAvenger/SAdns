@@ -17,22 +17,27 @@ import (
 
 // Behavior selects how the server misbehaves.
 type Behavior struct {
-	Validating    bool   // DNSSEC-validating (SERVFAIL for dnssec-failed.org, AD for ietf.org)
-	HijackNX      bool   // answer NXDOMAIN names with an address
-	Filtering     bool   // sinkhole ad domains to 0.0.0.0
-	NoTCP         bool   // do not listen on TCP
-	DropLargeUDP  bool   // silently drop UDP responses > 512 bytes
-	NoEDNS        bool   // strip OPT records from responses
-	Version       string // CHAOS version.bind
-	BadHTTPS      bool   // FORMERR on HTTPS/SVCB queries (old middlebox)
-	RebindProtect bool   // empty answer for names resolving to private IPs
-	Canaries      bool   // NXDOMAIN for DoH/Private Relay canary domains
-	DDR           bool   // advertise DoH via _dns.resolver.arpa SVCB
-	Lowercase     bool   // lowercase the echoed question (breaks 0x20)
-	Caching       bool   // decrementing TTLs (looks like a cache)
-	RateLimit     int    // drop UDP queries beyond N per 100 ms window (0 = off)
-	Egress        string // IP returned by o-o.myaddr.l.google.com
-	ASN           string // ASN returned for origin lookups
+	Validating     bool          // DNSSEC-validating (SERVFAIL for dnssec-failed.org, AD for ietf.org)
+	HijackNX       bool          // answer NXDOMAIN names with an address
+	Filtering      bool          // sinkhole ad domains to 0.0.0.0
+	NoTCP          bool          // do not listen on TCP
+	DropLargeUDP   bool          // silently drop UDP responses > 512 bytes
+	NoEDNS         bool          // strip OPT records from responses
+	Version        string        // CHAOS version.bind
+	BadHTTPS       bool          // FORMERR on HTTPS/SVCB queries (old middlebox)
+	RebindProtect  bool          // empty answer for names resolving to private IPs
+	Canaries       bool          // NXDOMAIN for DoH/Private Relay canary domains
+	DDR            bool          // advertise DoH via _dns.resolver.arpa SVCB
+	Lowercase      bool          // lowercase the echoed question (breaks 0x20)
+	Caching        bool          // decrementing TTLs (looks like a cache)
+	RateLimit      int           // drop UDP queries beyond N per 100 ms window (0 = off)
+	BrokenUpstream bool          // SERVFAIL for everything except example.com (dead upstream)
+	StripHTTPS     bool          // NOERROR but no records for HTTPS/SVCB queries
+	NoWildcard     bool          // nip.io/sslip.io unreachable (NXDOMAIN)
+	SlowFirst      time.Duration // delay on the first query of a wildcard name (recursion)
+	SlowRepeat     time.Duration // delay on repeat queries of the same name (0 = local cache hit)
+	Egress         string        // IP returned by o-o.myaddr.l.google.com
+	ASN            string        // ASN returned for origin lookups
 }
 
 // Server is a running mock resolver.
@@ -43,6 +48,7 @@ type Server struct {
 	mu    sync.Mutex
 	win   time.Time
 	count int
+	names map[string]bool
 	pc    net.PacketConn
 	ln    net.Listener
 	wg    sync.WaitGroup
@@ -55,7 +61,7 @@ func Start(b Behavior) (*Server, error) {
 		if err != nil {
 			return nil, err
 		}
-		s := &Server{B: b, pc: pc, Addr: pc.LocalAddr().String(), start: time.Now()}
+		s := &Server{B: b, pc: pc, Addr: pc.LocalAddr().String(), start: time.Now(), names: map[string]bool{}}
 		if !b.NoTCP {
 			ln, err := net.Listen("tcp", s.Addr)
 			if err != nil {
@@ -97,21 +103,23 @@ func (s *Server) serveUDP() {
 		if s.B.RateLimit > 0 && s.limited() {
 			continue
 		}
-		resp := s.answer(q)
-		limit := 512
-		if q.EDNS != nil && q.EDNS.UDPSize > 512 {
-			limit = int(q.EDNS.UDPSize)
-		}
-		b, _ := resp.Pack()
-		if len(b) > limit {
-			resp.Answer, resp.Authority, resp.Additional = nil, nil, nil
-			resp.TC = true
-			b, _ = resp.Pack()
-		}
-		if s.B.DropLargeUDP && len(b) > 512 {
-			continue
-		}
-		_, _ = s.pc.WriteTo(b, addr)
+		go func(q *dnswire.Msg, addr net.Addr) {
+			resp := s.answer(q)
+			limit := 512
+			if q.EDNS != nil && q.EDNS.UDPSize > 512 {
+				limit = int(q.EDNS.UDPSize)
+			}
+			b, _ := resp.Pack()
+			if len(b) > limit {
+				resp.Answer, resp.Authority, resp.Additional = nil, nil, nil
+				resp.TC = true
+				b, _ = resp.Pack()
+			}
+			if s.B.DropLargeUDP && len(b) > 512 {
+				return
+			}
+			_, _ = s.pc.WriteTo(b, addr)
+		}(q, addr)
 	}
 }
 
@@ -156,6 +164,8 @@ func (s *Server) limited() bool {
 	s.count++
 	return s.count > s.B.RateLimit
 }
+
+var adName = map[string]bool{"pagead2.googlesyndication.com": true, "ad.doubleclick.net": true, "googleadservices.com": true, "adservice.google.com": true, "static.ads-twitter.com": true}
 
 func a4(s string) []byte  { a := netip.MustParseAddr(s).As4(); return a[:] }
 func a16(s string) []byte { a := netip.MustParseAddr(s).As16(); return a[:] }
@@ -202,23 +212,53 @@ func (s *Server) answer(q *dnswire.Msg) *dnswire.Msg {
 		}
 		return r
 	}
+	if s.B.BrokenUpstream && name != "example.com" && name != "" {
+		r.Rcode = dnswire.RcodeServFail
+		return r
+	}
 	if qq.Type == dnswire.TypeHTTPS || qq.Type == dnswire.TypeSVCB {
 		switch {
 		case s.B.BadHTTPS:
 			r.Rcode = dnswire.RcodeFormErr
+		case s.B.StripHTTPS:
+		case name == "cloudflare.com" && qq.Type == dnswire.TypeHTTPS:
+			r.Answer = append(r.Answer, rr(qq.Type, []byte{0, 1, 0, 0, 1, 0, 3, 2, 'h', '3'})) // 1 . alpn=h3
 		case name == "_dns.resolver.arpa" && s.B.DDR:
 			data := append([]byte{0, 1}, dnswire.EncodeName("dns.google.")...)
 			r.Answer = append(r.Answer, rr(qq.Type, data))
 		}
 		return r
 	}
-	if ip, ok := strings.CutSuffix(name, ".nip.io"); ok && qq.Type == dnswire.TypeA {
-		if a, err := netip.ParseAddr(ip); err == nil && a.Is4() {
-			if !(s.B.RebindProtect && a.IsPrivate()) {
-				r.Answer = append(r.Answer, rr(dnswire.TypeA, a4(ip)))
-			}
+	for _, svc := range []string{".nip.io", ".sslip.io"} {
+		host, ok := strings.CutSuffix(name, svc)
+		if !ok || qq.Type != dnswire.TypeA {
+			continue
+		}
+		if s.B.NoWildcard {
+			nx()
 			return r
 		}
+		s.mu.Lock()
+		seen := s.names[name]
+		s.names[name] = true
+		s.mu.Unlock()
+		if seen {
+			time.Sleep(s.B.SlowRepeat)
+		} else {
+			time.Sleep(s.B.SlowFirst)
+		}
+		f := strings.Split(host, ".")
+		if len(f) >= 4 {
+			ip := strings.Join(f[len(f)-4:], ".")
+			if a, err := netip.ParseAddr(ip); err == nil && a.Is4() {
+				if !(s.B.RebindProtect && a.IsPrivate()) {
+					r.Answer = append(r.Answer, rr(dnswire.TypeA, a4(ip)))
+				}
+				return r
+			}
+		}
+		nx()
+		return r
 	}
 	switch {
 	case name == "use-application-dns.net" || name == "mask.icloud.com" || name == "mask-h2.icloud.com":
@@ -245,7 +285,7 @@ func (s *Server) answer(q *dnswire.Msg) *dnswire.Msg {
 		r.Answer = append(r.Answer, rr(dnswire.TypeA, a4("104.16.44.99")))
 		r.AD = s.B.Validating && (q.AD || (q.EDNS != nil && q.EDNS.DO))
 	case name == "dnssec-failed.org":
-		if s.B.Validating {
+		if s.B.Validating && !q.CD {
 			r.Rcode = dnswire.RcodeServFail
 			if r.EDNS != nil {
 				r.EDNS.Options = append(r.EDNS.Options, dnswire.EDNSOption{Code: dnswire.OptEDE, Data: append([]byte{0, 6}, "mock bogus"...)})
@@ -253,7 +293,7 @@ func (s *Server) answer(q *dnswire.Msg) *dnswire.Msg {
 		} else {
 			r.Answer = append(r.Answer, rr(dnswire.TypeA, a4("96.99.227.255")))
 		}
-	case name == "pagead2.googlesyndication.com" || name == "ad.doubleclick.net":
+	case adName[name]:
 		if s.B.Filtering {
 			r.Answer = append(r.Answer, rr(dnswire.TypeA, a4("0.0.0.0")))
 		} else {

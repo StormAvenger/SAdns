@@ -3,6 +3,7 @@ package analyze
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/StormAvenger/SAdns/internal/model"
@@ -45,8 +46,8 @@ func (a *az) resolverExtras() {
 		case "off":
 			rebindOff = append(rebindOff, who)
 		}
-		if r.Caching == "no" && r.OnLink {
-			noCache = append(noCache, who)
+		if (r.Caching == "no-cache" || r.Caching == "upstream-cache") && r.OnLink {
+			noCache = append(noCache, who+": "+r.Caching)
 		}
 		if r.CanaryDoH == "disables-doh" {
 			dohOff = append(dohOff, who)
@@ -61,14 +62,33 @@ func (a *az) resolverExtras() {
 			encPorts = append(encPorts, fmt.Sprintf("%s: TCP %v", who, r.OpenPorts))
 		}
 	}
+	pubHasHTTPS := false
+	for _, r := range a.resolvers("public") {
+		if r.HTTPSRR == "records" {
+			pubHasHTTPS = true
+		}
+	}
+	for _, r := range a.resolvers("system", "stub", "custom") {
+		if r.Reachable && r.HTTPSRR == "empty" {
+			if pubHasHTTPS {
+				a.add(model.Warn, "dns", "HTTPS-RR-STRIPPED", "HTTPS records are stripped by "+r.Label+" ("+r.Addr+")", "Public resolvers return HTTPS records for cloudflare.com but this resolver returns an empty answer. Browsers lose HTTP/3 and ECH hints and may do extra lookups.", "Update the resolver/router firmware; some filtering resolvers drop HTTPS records deliberately to stop ad bypass.", resEv(r, "https_rr")...)
+				a.conf(confirmed)
+			} else {
+				a.add(model.Info, "dns", "HTTPS-RR-EMPTY", "No HTTPS records via "+r.Label+" ("+r.Addr+")", "No public resolver result was available to compare against, so stripping cannot be confirmed.", "", resEv(r, "https_rr")...)
+				a.conf(inconclusive)
+			}
+		}
+	}
 	if rebindValid && len(rebindOn) > 0 {
 		a.add(model.Info, "security", "REBIND-ON", "DNS rebinding protection is active", "Public names that point to private addresses are blocked. This protects against DNS-rebinding attacks, but also breaks services that deliberately use such names (Plex *.plex.direct, nip.io/sslip.io, some smart-home and self-hosted setups) — a frequent cause of 'works remotely but not at home'.", "If a local service fails, whitelist its domain (dnsmasq: rebind-domain-ok=/plex.direct/; UniFi: add a DNS exception; Pi-hole: REBIND_DOMAIN_OK).", rebindOn...)
+		a.conf(confirmed)
 	}
 	if rebindValid && len(rebindOff) > 0 {
 		a.add(model.Info, "security", "REBIND-OFF", "No DNS rebinding protection on your resolver", "Public names may resolve to private IPs. Malicious websites can use this to reach devices on your LAN (routers, NAS, IoT) from your browser.", "Optional hardening: enable rebinding protection on the router/resolver (dnsmasq stop-dns-rebind, Unbound private-address).", rebindOff...)
 	}
 	if len(noCache) > 0 {
-		a.add(model.Info, "performance", "NO-CACHE", "Local resolver does not appear to cache answers", "TTLs did not count down between two lookups, so repeat lookups may go upstream every time.", "Enable caching on the router/resolver (dnsmasq cache-size).", noCache...)
+		a.add(model.Info, "performance", "NO-CACHE", "Local resolver does not cache answers itself", "Repeating a just-resolved name was not answered at LAN speed, so every lookup travels upstream (upstream-cache = a cache further away answered; no-cache = nothing in the path cached).", "Enable caching on the router/resolver (dnsmasq cache-size; Pi-hole/AdGuard Home cache settings).", noCache...)
+		a.conf(suspected)
 	}
 	var sig []string
 	if len(dohOff) > 0 {
@@ -220,4 +240,90 @@ func nonEmpty(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// webLoads attributes slow page loads to the responsible layer.
+func (a *az) webLoads() {
+	var ok []model.WebTiming
+	var failed []string
+	for _, w := range a.r.Web {
+		if w.OK {
+			ok = append(ok, w)
+		} else if w.Error != "" {
+			failed = append(failed, fmt.Sprintf("%s (IPv%d %s): %s", w.URL, w.Family, w.IP, w.Error))
+		}
+	}
+	if len(a.r.Web) == 0 {
+		return
+	}
+	ev := func(ws []model.WebTiming) []string {
+		var out []string
+		for _, w := range ws {
+			out = append(out, fmt.Sprintf("%s IPv%d: DNS %.0f · connect %.0f · TLS %.0f · first byte %.0f · download %.0f = %.0f ms (%s)", w.Host, w.Family, w.DNSMS, w.ConnectMS, w.TLSMS, w.TTFBMS, w.DownloadMS, w.TotalMS, w.Proto))
+		}
+		return out
+	}
+	if len(ok) == 0 {
+		a.add(model.Warn, "connectivity", "WEB-FAIL", "Test web pages could not be loaded", "None of the HTTPS test pages loaded, even though lower-level tests ran.", "See the errors: TLS errors point at interception or a wrong clock; timeouts at filtering or routing.", failed...)
+		return
+	}
+	med := func(f func(model.WebTiming) float64) float64 {
+		var v []float64
+		for _, w := range ok {
+			v = append(v, f(w))
+		}
+		sort.Float64s(v)
+		return v[len(v)/2]
+	}
+	dns := med(func(w model.WebTiming) float64 { return w.DNSMS })
+	con := med(func(w model.WebTiming) float64 { return w.ConnectMS })
+	tlsT := med(func(w model.WebTiming) float64 { return w.TLSMS })
+	ttfb := med(func(w model.WebTiming) float64 { return w.TTFBMS })
+	tot := med(func(w model.WebTiming) float64 { return w.TotalMS })
+	summary := fmt.Sprintf("Median page load %.0f ms = DNS %.0f + connect %.0f + TLS %.0f + first byte %.0f (+ download).", tot, dns, con, tlsT, ttfb)
+
+	issue := false
+	if dns > 150 && dns > con*2 {
+		issue = true
+		a.add(model.Warn, "performance", "WEB-DNS-BOTTLENECK", "DNS is the slowest step of loading web pages", summary+" Name resolution takes longer than connecting to the site.", "Fix the resolver findings above (dead primary, slow upstream, IPv6 DNS timeouts) — this is where users feel it.", ev(ok)...)
+		a.conf(confirmed)
+	}
+	if tlsT > 400 && tlsT > con*4 {
+		issue = true
+		a.add(model.Warn, "performance", "WEB-TLS-SLOW", "TLS handshakes are slow while DNS and TCP are fast", summary+" The delay is in the encrypted handshake, not in DNS — changing DNS servers will not help.", "Look for TLS/SSL inspection (firewall, antivirus web shield), a struggling middlebox, or CPU-starved router doing deep packet inspection.", ev(ok)...)
+		a.conf(suspected)
+	}
+	if con > 250 {
+		issue = true
+		a.add(model.Warn, "performance", "WEB-CONNECT-SLOW", "TCP connections to websites are slow", summary+" High connect time means latency or loss on the path itself.", "Check the ping/packet-loss results and the ISP link.", ev(ok)...)
+		a.conf(suspected)
+	}
+	// IPv6 vs IPv4 for the same site.
+	by := map[string]map[int]model.WebTiming{}
+	for _, w := range ok {
+		if by[w.URL] == nil {
+			by[w.URL] = map[int]model.WebTiming{}
+		}
+		by[w.URL][w.Family] = w
+	}
+	var slow6 []string
+	for u, m := range by {
+		v4, ok4 := m[4]
+		v6, ok6 := m[6]
+		if ok4 && ok6 && v6.ConnectMS+v6.TLSMS > 2*(v4.ConnectMS+v4.TLSMS)+80 {
+			slow6 = append(slow6, fmt.Sprintf("%s: IPv6 connect+TLS %.0f ms vs IPv4 %.0f ms", u, v6.ConnectMS+v6.TLSMS, v4.ConnectMS+v4.TLSMS))
+		}
+	}
+	sort.Strings(slow6)
+	if len(slow6) > 0 {
+		issue = true
+		a.add(model.Warn, "performance", "WEB-V6-SLOWER", "Websites are noticeably slower over IPv6", "Browsers prefer IPv6, so a slower IPv6 path is felt on every dual-stack site.", "Compare the IPv6 ping/MTU results; check the router's IPv6 path, tunnel or MTU.", slow6...)
+		a.conf(suspected)
+	}
+	if len(failed) > 0 {
+		a.add(model.Info, "connectivity", "WEB-PARTIAL", "Some test pages failed to load", "Other pages loaded, so this is site- or family-specific.", "", failed...)
+	}
+	if !issue {
+		a.add(model.Pass, "performance", "WEB-OK", fmt.Sprintf("Web page loads are healthy (median %.0f ms)", tot), summary, "", ev(ok)...)
+	}
 }

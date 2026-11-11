@@ -103,6 +103,21 @@ func (e *Engine) Run(ctx context.Context) *model.Report {
 	rep.System = e.sys
 	e.log(fmt.Sprintf("%s %s: %d interfaces, %d gateways, %d configured resolvers", e.sys.OS, e.sys.OSVersion, len(e.sys.Interfaces), len(e.sys.Gateways), len(e.sys.Resolvers)+len(e.sys.StubResolvers)))
 
+	stop := func() bool {
+		if ctx.Err() != nil {
+			rep.Cancelled = true
+			return true
+		}
+		return false
+	}
+	finish := func() *model.Report {
+		rep.FinishedAt = time.Now()
+		rep.DurationSec = round2(rep.FinishedAt.Sub(rep.StartedAt).Seconds())
+		return rep
+	}
+	if stop() {
+		return finish()
+	}
 	e.phase(0.10, "connectivity", "Testing raw IPv4/IPv6 internet connectivity")
 	rep.Connectivity = e.connectivity(ctx)
 	e.log(fmt.Sprintf("IPv4 working=%v, IPv6 working=%v", rep.Connectivity.IPv4.Working, rep.Connectivity.IPv6.Working))
@@ -117,6 +132,10 @@ func (e *Engine) Run(ctx context.Context) *model.Report {
 		}()
 	}
 
+	if stop() {
+		traceWG.Wait()
+		return finish()
+	}
 	e.phase(0.16, "public-ip", "Finding public IP addresses and checking the clock")
 	rep.PublicIP = e.publicIP(ctx, rep.Connectivity)
 
@@ -131,9 +150,15 @@ func (e *Engine) Run(ctx context.Context) *model.Report {
 	go func() {
 		defer nhWG.Done()
 		rep.Network = e.netHealth(ctx, rep.Connectivity)
+		rep.Web = e.webLoads(ctx, rep.Connectivity)
 		e.log(fmt.Sprintf("network health: %d ping series, %d MTU probes, %d NTP servers, %d HTTP checks", len(rep.Network.Pings), len(rep.Network.MTU), len(rep.Network.NTP), len(rep.Network.HTTP)))
 	}()
 
+	if stop() {
+		traceWG.Wait()
+		nhWG.Wait()
+		return finish()
+	}
 	targets := e.targets(rep.Connectivity)
 	e.phase(0.30, "resolvers", fmt.Sprintf("Testing %d resolver addresses", len(targets)))
 	rep.Resolvers = make([]model.ResolverResult, len(targets))
@@ -145,7 +170,13 @@ func (e *Engine) Run(ctx context.Context) *model.Report {
 		wg.Add(1)
 		go func(i int, t target) {
 			defer wg.Done()
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				rep.Resolvers[i] = model.ResolverResult{Label: t.label, Role: t.role, Addr: t.addr.String(), Family: t.family(),
+					Tests: []model.TestResult{{ID: "udp_a", Name: "UDP query (A)", Status: model.Skip, Detail: "scan cancelled"}}}
+				return
+			}
 			defer func() { <-sem }()
 			r := e.runResolver(ctx, t)
 			rep.Resolvers[i] = r
@@ -159,6 +190,11 @@ func (e *Engine) Run(ctx context.Context) *model.Report {
 	}
 	wg.Wait()
 
+	if stop() {
+		traceWG.Wait()
+		nhWG.Wait()
+		return finish()
+	}
 	e.phase(0.86, "interception", "Checking for DNS interception and identifying upstream networks")
 	rep.Interception.BogonProbes = e.bogonProbes(ctx)
 	for _, b := range rep.Interception.BogonProbes {
@@ -176,25 +212,31 @@ func (e *Engine) Run(ctx context.Context) *model.Report {
 		e.phase(0.92, "routing", "Waiting for traceroutes to finish")
 		traceWG.Wait()
 	}
-	rep.FinishedAt = time.Now()
-	rep.DurationSec = round2(rep.FinishedAt.Sub(rep.StartedAt).Seconds())
-	return rep
+	stop()
+	return finish()
 }
 
 // targets builds the ordered list of resolver addresses to test.
 func (e *Engine) targets(conn model.Connectivity) []target {
 	var out []target
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	add := func(t target) {
 		k := t.addr.String()
-		if seen[k] {
+		if i, ok := seen[k]; ok {
+			// One measurement per endpoint, but keep every classification:
+			// a system resolver that IS 1.1.1.1 keeps its Cloudflare identity
+			// so DoT/DoH and egress-ASN verification still run.
+			if out[i].prov == nil && t.prov != nil {
+				out[i].prov = t.prov
+				out[i].label += " = " + t.label
+			}
 			return
 		}
 		fam := t.family()
 		if (fam == 4 && !e.cfg.IPv4) || (fam == 6 && !e.cfg.IPv6) {
 			return
 		}
-		seen[k] = true
+		seen[k] = len(out)
 		out = append(out, t)
 	}
 	parse := func(s string, def uint16) (netip.AddrPort, bool) {
@@ -214,7 +256,14 @@ func (e *Engine) targets(conn model.Connectivity) []target {
 	}
 	for i, r := range e.sys.Resolvers {
 		if ap, ok := parse(r.Addr, 53); ok {
-			add(target{label: fmt.Sprintf("System DNS #%d", i+1), role: "system", addr: ap, primary: i == 0, iface: r.Interface})
+			t := target{label: fmt.Sprintf("System DNS #%d", i+1), role: "system", addr: ap, primary: i == 0, iface: r.Interface}
+			if ap.Port() == 53 {
+				t.prov = ProviderForAddr(ap.Addr().String())
+				if t.prov != nil {
+					t.label += " (" + t.prov.Name + ")"
+				}
+			}
+			add(t)
 		}
 	}
 	for _, g := range e.sys.Gateways {
@@ -385,6 +434,9 @@ func (e *Engine) failover(rep *model.Report) model.Failover {
 	case "darwin":
 		f.Model = "macOS mDNSResponder: queries the first server, retries others after a short timeout and remembers responsiveness"
 		f.WorstCaseSec = 3
+	}
+	if f.Model != "" {
+		f.Model = "Estimate from documented OS behaviour, not measured: " + f.Model
 	}
 	if f.ConfiguredCount == 1 {
 		f.Notes = append(f.Notes, "only one system resolver configured — no DNS failover exists")

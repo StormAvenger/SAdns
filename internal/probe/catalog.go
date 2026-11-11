@@ -98,4 +98,4 @@ const (
 )
 
 // Ad/tracker hostnames present on virtually every blocklist.
-var adNames = []string{"pagead2.googlesyndication.com", "ad.doubleclick.net"}
+var adNames = []string{"pagead2.googlesyndication.com", "ad.doubleclick.net", "googleadservices.com", "adservice.google.com", "static.ads-twitter.com"}

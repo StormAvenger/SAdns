@@ -1,17 +1,22 @@
-// Package web serves the SAdns browser UI on a loopback-only port. The UI
-// is a single embedded HTML file; all probing happens in this process.
+// Package web serves the SAdns browser UI on a loopback-only port. The UI is
+// a single embedded HTML file; all probing happens in this process.
 package web
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	_ "embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -27,9 +32,33 @@ import (
 //go:embed index.html
 var indexHTML []byte
 
+// Limits that keep a run (and a forgotten browser tab) bounded.
+const (
+	maxRunDuration = 10 * time.Minute
+	maxEvents      = 5000
+)
+
+// cspHeader allows only the exact inline script and stylesheet shipped in
+// index.html (by hash) — no other inline code, no remote resources.
+var cspHeader = func() string {
+	hash := func(open, close string) string {
+		i := bytes.Index(indexHTML, []byte(open))
+		j := bytes.Index(indexHTML, []byte(close))
+		if i < 0 || j < 0 {
+			return "'none'"
+		}
+		body := indexHTML[i+len(open) : j]
+		sum := sha256.Sum256(body)
+		return "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+	}
+	return "default-src 'none'; script-src " + hash("<script>", "</script>") +
+		"; style-src " + hash("<style>", "</style>") +
+		"; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+}()
+
 // Options configures the UI server.
 type Options struct {
-	Listen      string // default 127.0.0.1:0 (random port)
+	Listen      string // must be a loopback address; default 127.0.0.1:0 (random port)
 	OpenBrowser bool
 	Defaults    probe.Config
 	Tool        model.ToolInfo
@@ -38,16 +67,37 @@ type Options struct {
 }
 
 type server struct {
-	opt   Options
-	token string
-	host  string
+	opt    Options
+	token  string
+	host   string
+	cookie string
 
-	mu      sync.Mutex
-	running bool
-	events  []probe.Event
-	subs    map[chan probe.Event]struct{}
-	rep     *model.Report
-	seen    time.Time
+	mu        sync.Mutex
+	running   bool
+	cancelRun context.CancelFunc
+	events    []probe.Event
+	subs      map[chan probe.Event]struct{}
+	rep       *model.Report
+	seen      time.Time
+}
+
+// ErrNotLoopback is returned when asked to listen on a non-loopback address.
+var ErrNotLoopback = errors.New("the UI only listens on loopback addresses (127.0.0.1, ::1, localhost) — use 'sadns run' for remote/headless machines")
+
+// CheckLoopback validates a listen address.
+func CheckLoopback(listen string) (string, error) {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return "", err
+	}
+	if host == "localhost" || host == "" {
+		host = "127.0.0.1"
+	}
+	a, err := netip.ParseAddr(host)
+	if err != nil || !a.IsLoopback() {
+		return "", ErrNotLoopback
+	}
+	return net.JoinHostPort(a.String(), port), nil
 }
 
 // Serve runs the UI until ctx is cancelled, the user clicks Quit, or the
@@ -56,38 +106,29 @@ func Serve(ctx context.Context, opt Options) error {
 	if opt.Listen == "" {
 		opt.Listen = "127.0.0.1:0"
 	}
+	listen, err := CheckLoopback(opt.Listen)
+	if err != nil {
+		return err
+	}
 	if opt.Logf == nil {
 		opt.Logf = func(string, ...any) {}
 	}
 	if opt.IdleTimeout == 0 {
 		opt.IdleTimeout = 2 * time.Hour
 	}
-	ln, err := net.Listen("tcp", opt.Listen)
+	ln, err := net.Listen("tcp", listen)
 	if err != nil {
 		return err
 	}
 	var tb [16]byte
 	_, _ = rand.Read(tb[:])
 	s := &server{opt: opt, token: hex.EncodeToString(tb[:]), host: ln.Addr().String(), subs: map[chan probe.Event]struct{}{}, seen: time.Now()}
+	_, port, _ := net.SplitHostPort(s.host)
+	s.cookie = "sadns_" + port // cookies are not port-scoped; avoid collisions between instances
 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", s.guard(s.handleIndex, false))
-	mux.HandleFunc("/api/info", s.guard(s.handleInfo, true))
-	mux.HandleFunc("/api/run", s.guard(s.handleRun, true))
-	mux.HandleFunc("/api/events", s.guard(s.handleEvents, true))
-	mux.HandleFunc("/api/report.md", s.guard(s.handleMD, true))
-	mux.HandleFunc("/api/report.json", s.guard(s.handleJSON, true))
-	mux.HandleFunc("/api/quit", s.guard(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "POST only", http.StatusMethodNotAllowed)
-			return
-		}
-		fmt.Fprintln(w, "bye")
-		go func() { time.Sleep(200 * time.Millisecond); cancel() }()
-	}, true))
-
+	mux := s.routes(ctx, cancel)
 	hs := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	url := fmt.Sprintf("http://%s/?token=%s", s.host, s.token)
 	opt.Logf("SAdns UI running at %s", url)
@@ -118,6 +159,11 @@ func Serve(ctx context.Context, opt Options) error {
 	}()
 	go func() {
 		<-ctx.Done()
+		s.mu.Lock()
+		if s.cancelRun != nil {
+			s.cancelRun()
+		}
+		s.mu.Unlock()
 		sctx, c := context.WithTimeout(context.Background(), 2*time.Second)
 		defer c()
 		_ = hs.Shutdown(sctx)
@@ -129,35 +175,69 @@ func Serve(ctx context.Context, opt Options) error {
 	return err
 }
 
+func (s *server) routes(ctx context.Context, quit context.CancelFunc) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", s.guard(s.handleIndex, false))
+	mux.HandleFunc("/api/info", s.guard(s.handleInfo, true))
+	mux.HandleFunc("/api/run", s.guard(func(w http.ResponseWriter, r *http.Request) { s.handleRun(ctx, w, r) }, true))
+	mux.HandleFunc("/api/cancel", s.guard(s.handleCancel, true))
+	mux.HandleFunc("/api/events", s.guard(s.handleEvents, true))
+	mux.HandleFunc("/api/report.md", s.guard(s.handleMD, true))
+	mux.HandleFunc("/api/report.json", s.guard(s.handleJSON, true))
+	mux.HandleFunc("/api/quit", s.guard(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		fmt.Fprintln(w, "bye")
+		go func() { time.Sleep(200 * time.Millisecond); quit() }()
+	}, true))
+	return mux
+}
+
 // guard enforces loopback Host headers (DNS-rebinding defence) and the
-// per-launch token (blocks other local web pages from driving the API).
+// per-launch secret. The page is opened once with ?token=; it then receives
+// an HttpOnly SameSite=Strict session cookie and the URL is cleaned, so the
+// secret does not linger in links, history or downloads. State-changing
+// requests additionally require the secret in a custom header (CSRF).
 func (s *server) guard(h http.HandlerFunc, api bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		host := r.Host
 		if hh, _, err := net.SplitHostPort(host); err == nil {
 			host = hh
 		}
-		if host != "127.0.0.1" && host != "localhost" && host != "::1" {
+		if host != "127.0.0.1" && host != "localhost" && host != "::1" && host != "[::1]" {
 			http.Error(w, "forbidden host", http.StatusForbidden)
 			return
 		}
-		tok := r.URL.Query().Get("token")
-		if tok == "" {
-			tok = r.Header.Get("X-SAdns-Token")
+		ok := false
+		viaQuery := false
+		if c, err := r.Cookie(s.cookie); err == nil && s.valid(c.Value) {
+			ok = true
 		}
-		if subtle.ConstantTimeCompare([]byte(tok), []byte(s.token)) != 1 {
+		if !ok && s.valid(r.Header.Get("X-SAdns-Token")) {
+			ok = true
+		}
+		if !ok && !api && s.valid(r.URL.Query().Get("token")) {
+			ok, viaQuery = true, true
+		}
+		if !ok {
 			if !api && r.URL.Path == "/" {
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				w.Header().Set("Content-Security-Policy", "default-src 'none'")
 				w.WriteHeader(http.StatusForbidden)
-				fmt.Fprint(w, `<!doctype html><meta charset="utf-8"><title>SAdns</title><body style="font-family:system-ui;background:#0b0f14;color:#dde5ee;padding:3rem"><h2>SAdns</h2><p>This page needs the private link printed in the SAdns console window (it contains a one-time token).</p></body>`)
+				fmt.Fprint(w, `<!doctype html><meta charset="utf-8"><title>SAdns</title><h2>SAdns</h2><p>Open the private link printed in the SAdns console window (it contains a one-time token).</p>`)
 				return
 			}
-			http.Error(w, "bad token", http.StatusForbidden)
+			http.Error(w, "unauthorised", http.StatusForbidden)
 			return
 		}
-		if api && r.Method == http.MethodPost && r.Header.Get("X-SAdns-Token") == "" {
-			http.Error(w, "missing token header", http.StatusForbidden) // simple CSRF guard
+		if r.Method == http.MethodPost && !s.valid(r.Header.Get("X-SAdns-Token")) {
+			http.Error(w, "missing token header", http.StatusForbidden)
 			return
+		}
+		if viaQuery {
+			http.SetCookie(w, &http.Cookie{Name: s.cookie, Value: s.token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		}
 		s.mu.Lock()
 		s.seen = time.Now()
@@ -165,8 +245,13 @@ func (s *server) guard(h http.HandlerFunc, api bool) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
+		w.Header().Set("X-Frame-Options", "DENY")
 		h(w, r)
 	}
+}
+
+func (s *server) valid(v string) bool {
+	return v != "" && subtle.ConstantTimeCompare([]byte(v), []byte(s.token)) == 1
 }
 
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -175,12 +260,13 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
+	w.Header().Set("Content-Security-Policy", cspHeader)
 	_, _ = w.Write(indexHTML)
 }
 
 type infoResp struct {
 	Tool      model.ToolInfo   `json:"tool"`
+	Token     string           `json:"token"` // for the CSRF header; the page already proved it knows it
 	OS        string           `json:"os"`
 	Arch      string           `json:"arch"`
 	Providers []probe.Provider `json:"providers"`
@@ -205,7 +291,7 @@ func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	d := s.opt.Defaults
 	s.mu.Lock()
 	resp := infoResp{
-		Tool: s.opt.Tool, OS: runtime.GOOS, Arch: runtime.GOARCH, Providers: probe.Providers,
+		Tool: s.opt.Tool, Token: s.token, OS: runtime.GOOS, Arch: runtime.GOARCH, Providers: probe.Providers,
 		Defaults: runReq{Quick: d.Quick, Samples: d.Samples, TimeoutMS: int(d.Timeout.Milliseconds()), Providers: d.Providers, Extra: d.Extra,
 			Traceroute: d.Traceroute, Encrypted: d.Encrypted, IPv4: d.IPv4, IPv6: d.IPv6},
 		Running: s.running, HasReport: s.rep != nil,
@@ -214,7 +300,7 @@ func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, resp)
 }
 
-func (s *server) handleRun(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleRun(srvCtx context.Context, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "POST only", http.StatusMethodNotAllowed)
 		return
@@ -237,7 +323,10 @@ func (s *server) handleRun(w http.ResponseWriter, r *http.Request) {
 	}
 	cfg.Providers = req.Providers
 	cfg.Extra = nil
-	for _, x := range req.Extra {
+	for i, x := range req.Extra {
+		if i >= 16 {
+			break // resource limit
+		}
 		if x = strings.TrimSpace(x); x != "" {
 			cfg.Extra = append(cfg.Extra, x)
 		}
@@ -250,24 +339,46 @@ func (s *server) handleRun(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "a run is already in progress", http.StatusConflict)
 		return
 	}
+	runCtx, cancel := context.WithTimeout(srvCtx, maxRunDuration)
 	s.running = true
+	s.cancelRun = cancel
 	s.events = nil
 	s.rep = nil
 	s.mu.Unlock()
 
 	go func() {
+		defer cancel()
 		eng := probe.New(cfg, s.publish)
-		rep := eng.Run(context.Background())
+		rep := eng.Run(runCtx)
 		rep.Tool = s.opt.Tool
 		analyze.Run(rep)
 		s.mu.Lock()
 		s.rep = rep
 		s.running = false
+		s.cancelRun = nil
 		s.mu.Unlock()
-		s.publish(probe.Event{Type: "done", Progress: 1, Message: fmt.Sprintf("Finished in %.1f s", rep.DurationSec), Report: rep})
+		msg := fmt.Sprintf("Finished in %.1f s", rep.DurationSec)
+		if rep.Cancelled {
+			msg = "Scan cancelled — partial results"
+		}
+		s.publish(probe.Event{Type: "done", Progress: 1, Message: msg, Report: rep})
 		s.opt.Logf("Run finished: %s — %d fail, %d warn, %d info, %d pass", rep.Summary.Verdict, rep.Summary.Fail, rep.Summary.Warn, rep.Summary.Info, rep.Summary.Pass)
 	}()
 	writeJSON(w, map[string]any{"started": true})
+}
+
+func (s *server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST only", http.StatusMethodNotAllowed)
+		return
+	}
+	s.mu.Lock()
+	c := s.cancelRun
+	s.mu.Unlock()
+	if c != nil {
+		c()
+	}
+	writeJSON(w, map[string]any{"cancelled": c != nil})
 }
 
 func (s *server) publish(ev probe.Event) {
@@ -277,7 +388,9 @@ func (s *server) publish(ev probe.Event) {
 	if ev.Type == "done" {
 		stored.Report = nil // replayed separately from s.rep
 	}
-	s.events = append(s.events, stored)
+	if len(s.events) < maxEvents || ev.Type == "done" {
+		s.events = append(s.events, stored)
+	}
 	for ch := range s.subs {
 		select {
 		case ch <- ev:
@@ -355,36 +468,33 @@ func (s *server) current(w http.ResponseWriter) *model.Report {
 	return s.rep
 }
 
-func (s *server) handleMD(w http.ResponseWriter, r *http.Request) {
+func (s *server) serveReport(w http.ResponseWriter, r *http.Request, format, ctype string) {
 	rep := s.current(w)
 	if rep == nil {
 		return
 	}
-	body := Render(rep, r.URL.Query().Get("redact") == "1", "md")
-	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	level := report.ParsePrivacy(r.URL.Query().Get("privacy"))
+	body := Render(rep, level, format)
+	w.Header().Set("Content-Type", ctype)
 	if r.URL.Query().Get("download") == "1" {
-		w.Header().Set("Content-Disposition", `attachment; filename="`+FileBase(rep)+`.md"`)
+		w.Header().Set("Content-Disposition", `attachment; filename="`+FileBase(rep)+"-"+level+"."+format+`"`)
 	}
 	_, _ = w.Write(body)
+}
+
+func (s *server) handleMD(w http.ResponseWriter, r *http.Request) {
+	s.serveReport(w, r, "md", "text/markdown; charset=utf-8")
 }
 
 func (s *server) handleJSON(w http.ResponseWriter, r *http.Request) {
-	rep := s.current(w)
-	if rep == nil {
-		return
-	}
-	body := Render(rep, r.URL.Query().Get("redact") == "1", "json")
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	if r.URL.Query().Get("download") == "1" {
-		w.Header().Set("Content-Disposition", `attachment; filename="`+FileBase(rep)+`.json"`)
-	}
-	_, _ = w.Write(body)
+	s.serveReport(w, r, "json", "application/json; charset=utf-8")
 }
 
-// Render produces Markdown or JSON output, optionally redacted.
-func Render(rep *model.Report, redact bool, format string) []byte {
+// Render produces Markdown or JSON output at the given privacy level.
+func Render(rep *model.Report, privacy, format string) []byte {
 	cp := *rep
-	cp.Redacted = redact
+	rd := report.NewRedactor(rep, privacy)
+	cp.Privacy = rd.Level()
 	var out string
 	if format == "json" {
 		b, _ := report.JSON(&cp)
@@ -392,10 +502,7 @@ func Render(rep *model.Report, redact bool, format string) []byte {
 	} else {
 		out = report.Markdown(&cp)
 	}
-	if redact {
-		out = report.NewRedactor(rep).Apply(out)
-	}
-	return []byte(out)
+	return []byte(rd.Apply(out))
 }
 
 // FileBase is the suggested report file name without extension.

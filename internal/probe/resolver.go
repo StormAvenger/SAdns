@@ -127,7 +127,6 @@ func (e *Engine) runResolver(ctx context.Context, t target) model.ResolverResult
 	if r.OK() {
 		basic = r.Msg
 	}
-	basicTime := time.Now()
 
 	// 2. TCP/53 (always tried, even if UDP failed — distinguishes UDP blocking).
 	rt, _ := e.query(ctx, tcp, nameBasic, dnswire.TypeA, dnswire.QueryOpts{EDNS: true})
@@ -171,7 +170,7 @@ func (e *Engine) runResolver(ctx context.Context, t target) model.ResolverResult
 	}
 	res.Tests = append(res.Tests, t6)
 
-	// 4. Latency (cached) + one uncached lookup.
+	// 4. Latency of cached queries (uncached latency is measured separately).
 	var samples []float64
 	for i := 0; i < e.cfg.Samples; i++ {
 		res.Latency.Sent++
@@ -179,16 +178,14 @@ func (e *Engine) runResolver(ctx context.Context, t target) model.ResolverResult
 		if rr.OK() {
 			samples = append(samples, ms(rr.RTT))
 		}
-		time.Sleep(40 * time.Millisecond)
+		if !sleepCtx(ctx, 40*time.Millisecond) {
+			break
+		}
 	}
 	res.Latency = stats(res.Latency.Sent, samples)
-	rc, _ := e.query(ctx, udp, dnswire.RandomLabel(12)+"."+nameBasic, dnswire.TypeA, dnswire.QueryOpts{EDNS: true})
-	if rc.OK() {
-		res.ColdMS = ms(rc.RTT)
-	}
 	lt := model.TestResult{ID: "latency", Name: "Latency (cached queries)", Status: model.Pass,
-		Detail: fmt.Sprintf("%d/%d answered, median %.1f ms, p90 %.1f ms, jitter %.1f ms; uncached lookup %.1f ms",
-			res.Latency.Received, res.Latency.Sent, res.Latency.MedianMS, res.Latency.P90MS, res.Latency.JitterMS, res.ColdMS)}
+		Detail: fmt.Sprintf("%d/%d answered, median %.1f ms, p90 %.1f ms, jitter %.1f ms",
+			res.Latency.Received, res.Latency.Sent, res.Latency.MedianMS, res.Latency.P90MS, res.Latency.JitterMS)}
 	if res.Latency.LossPct > 0 {
 		lt.Status = model.Warn
 	}
@@ -245,29 +242,8 @@ func (e *Engine) runResolver(ctx context.Context, t target) model.ResolverResult
 	}
 	res.Tests = append(res.Tests, lb)
 
-	// 7. DNSSEC validation.
-	rg, _ := e.query(ctx, udp, nameDNSSECGood, dnswire.TypeA, dnswire.QueryOpts{EDNS: true, DO: true, AD: true})
-	rx, _ := e.query(ctx, udp, nameDNSSECBad, dnswire.TypeA, dnswire.QueryOpts{EDNS: true, AD: true})
-	dt := toTest("dnssec", "DNSSEC validation", nameDNSSECGood+" (signed) / "+nameDNSSECBad+" (bogus)", rx)
-	adGood := rg.OK() && rg.Msg.AD
-	switch {
-	case rx.OK() && rx.Msg.Rcode == dnswire.RcodeServFail && adGood:
-		res.DNSSEC, dt.Status, dt.Detail = "validating", model.Pass, "bogus zone rejected (SERVFAIL) and valid zone marked authentic (AD=1)"
-	case rx.OK() && rx.Msg.Rcode == dnswire.RcodeServFail:
-		res.DNSSEC, dt.Status, dt.Detail = "validating", model.Pass, "bogus zone rejected (SERVFAIL); AD bit not returned for valid zone"
-	case rx.OK() && rx.Msg.Rcode == dnswire.RcodeSuccess && len(rx.Msg.Addrs()) > 0:
-		res.DNSSEC, dt.Status, dt.Detail = "not-validating", model.Info, "returned addresses for a domain with broken signatures — resolver does not validate DNSSEC"
-		if adGood {
-			res.DNSSEC = "inconsistent"
-			dt.Status, dt.Detail = model.Warn, "AD bit set on valid zone but bogus zone accepted — AD bit is being passed through without validation"
-		}
-	default:
-		res.DNSSEC, dt.Status, dt.Detail = "inconclusive", model.Info, "bogus test zone returned "+dt.Rcode+dt.Error
-	}
-	if rg.Msg != nil {
-		dt.Detail += fmt.Sprintf(" [signed zone: %s, flags %q]", dnswire.RcodeString(rg.Msg.Rcode), rg.Msg.FlagString())
-	}
-	res.Tests = append(res.Tests, dt)
+	// 7. DNSSEC validation with positive and negative controls.
+	e.dnssecTest(ctx, udp, &res)
 
 	// 8. NXDOMAIN integrity.
 	nxName := "sadns-nx-" + dnswire.RandomLabel(14) + ".com"
@@ -288,36 +264,8 @@ func (e *Engine) runResolver(ctx context.Context, t target) model.ResolverResult
 	}
 	res.Tests = append(res.Tests, nt)
 
-	// 9. Ad/tracker filtering.
-	ft := model.TestResult{ID: "filtering", Name: "Ad/tracker filtering", Status: model.Info, Query: strings.Join(adNames, ", ")}
-	blocked, checked := 0, 0
-	var fdet []string
-	for _, n := range adNames {
-		ra, _ := e.query(ctx, udp, n, dnswire.TypeA, dnswire.QueryOpts{EDNS: true})
-		if !ra.OK() {
-			fdet = append(fdet, n+": "+ra.ErrClass)
-			continue
-		}
-		checked++
-		b, why := looksBlocked(ra.Msg)
-		if b {
-			blocked++
-		}
-		fdet = append(fdet, n+": "+why)
-	}
-	switch {
-	case checked == 0:
-		res.Filtering = "unknown"
-	case !basicOK:
-		res.Filtering = "unknown"
-		fdet = append(fdet, "inconclusive: control name "+nameBasic+" does not resolve either")
-	case blocked > 0:
-		res.Filtering = "blocks-ads"
-	default:
-		res.Filtering = "no-ad-blocking"
-	}
-	ft.Detail = res.Filtering + " (" + strings.Join(fdet, "; ") + ")"
-	res.Tests = append(res.Tests, ft)
+	// 9. Ad/tracker filtering (needs a working control answer to mean anything).
+	e.filterTest(ctx, udp, &res, basicOK)
 
 	// 10. Server identity (CHAOS class) — fingerprints dnsmasq, Unbound, BIND, PoPs.
 	var ids []string
@@ -371,16 +319,18 @@ func (e *Engine) runResolver(ctx context.Context, t target) model.ResolverResult
 	res.Tests = append(res.Tests, eg)
 
 	// 12. Protocol compliance and behaviour.
+	netRTT := rt.Connect
+	if netRTT <= 0 && res.Latency.MinMS > 0 {
+		netRTT = time.Duration(res.Latency.MinMS * float64(time.Millisecond))
+	}
 	e.extraTests(ctx, t, &res, udp)
 
-	// 13. Encrypted transports for public providers.
+	// 13. Uncached lookups and where (if anywhere) answers are cached.
+	e.coldCacheTest(ctx, &res, udp, netRTT)
+
+	// 14. Encrypted transports for public providers.
 	if t.prov != nil && e.cfg.Encrypted {
 		e.encryptedTests(ctx, t, &res)
-	}
-
-	// 14. Caching (needs ≥1 s since the first answer).
-	if ttl1, ok := firstTTL(basic, dnswire.TypeA); ok {
-		e.cacheTest(ctx, &res, udp, ttl1, basicTime)
 	}
 	return res
 }

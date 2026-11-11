@@ -61,10 +61,21 @@ func Markdown(r *model.Report) string {
 	}
 	o.p("| **Verdict** | **%s** — %s |", strings.ToUpper(r.Summary.Verdict), cell(r.Summary.Headline))
 	o.p("| **Findings** | ❌ %d fail · ⚠️ %d warn · ℹ️ %d info · ✅ %d pass |", r.Summary.Fail, r.Summary.Warn, r.Summary.Info, r.Summary.Pass)
+	if len(r.Summary.Coverage) > 0 {
+		o.p("| **Coverage gaps** | %s |", cell(strings.Join(r.Summary.Coverage, "; ")))
+	}
 	opts := r.Options
 	o.p("| **Options** | samples=%d, timeout=%dms, quick=%v, traceroute=%v, encrypted=%v, ipv4=%v, ipv6=%v |", opts.Samples, opts.TimeoutMS, opts.Quick, opts.Traceroute, opts.Encrypted, opts.IPv4, opts.IPv6)
-	if r.Redacted {
-		o.p("| **Privacy** | Redacted: public IPs, hostname and MAC addresses replaced with placeholders |")
+	switch r.Privacy {
+	case PrivacyTechnical:
+		o.p("| **Privacy** | Technical: your public IPs, IPv6 prefix, hostname, MACs and client subnet are replaced with placeholders; LAN layout kept |")
+	case PrivacyPublic:
+		o.p("| **Privacy** | Public-safe: additionally, LAN addresses are replaced with consistent placeholders ([lan-ip-N]) and internal domains are masked |")
+	default:
+		o.p("| **Privacy** | Full: nothing redacted — contains your public IP and device details; share only with people you trust |")
+	}
+	if r.Cancelled {
+		o.p("| **Status** | ⚠️ Scan was cancelled — results are incomplete |")
 	}
 	o.nl()
 	o.p("## How to use this report with an AI assistant")
@@ -84,7 +95,11 @@ func Markdown(r *model.Report) string {
 			continue
 		}
 		o.p("### %s %s — %s", icon(f.Severity), strings.ToUpper(f.Severity), f.Title)
-		o.p("`%s` · %s", f.ID, f.Category)
+		meta := "`" + f.ID + "` · " + f.Category
+		if f.Confidence != "" {
+			meta += " · confidence: **" + f.Confidence + "**"
+		}
+		o.p("%s", meta)
 		o.nl()
 		if f.Detail != "" {
 			o.p("%s", f.Detail)
@@ -306,6 +321,28 @@ func Markdown(r *model.Report) string {
 		o.nl()
 	}
 
+	// Website loading
+	if len(r.Web) > 0 {
+		o.h2("Website loading (phase breakdown)")
+		o.nl()
+		o.p("Fresh HTTPS connections to real sites, per address family. DNS = OS resolver lookup time, as a browser experiences it.")
+		o.nl()
+		o.p("| Site | Family | IP | DNS | Connect | TLS | First byte | Download | Total | Protocol | Result |")
+		o.p("|---|---|---|---|---|---|---|---|---|---|---|")
+		for _, w := range r.Web {
+			res := fmt.Sprintf("%d", w.Status)
+			if w.Error != "" {
+				res = w.Error
+			}
+			fam := "—"
+			if w.Family > 0 {
+				fam = fmt.Sprintf("IPv%d", w.Family)
+			}
+			o.p("| %s | %s | %s | %.0f ms | %.0f ms | %.0f ms | %.0f ms | %.0f ms | %.0f ms | %s %s | %s |", w.URL, fam, w.IP, w.DNSMS, w.ConnectMS, w.TLSMS, w.TTFBMS, w.DownloadMS, w.TotalMS, w.Proto, w.TLSVersion, cell(res))
+		}
+		o.nl()
+	}
+
 	// 4. OS path
 	o.h2("Operating-system resolution path")
 	o.nl()
@@ -464,7 +501,7 @@ func Markdown(r *model.Report) string {
 		o.p("- OS failover behaviour: %s", fo.Model)
 	}
 	if fo.WorstCaseSec > 0 {
-		o.p("- Estimated worst-case delay before a lookup fails over: ~%.0f s", fo.WorstCaseSec)
+		o.p("- Estimated (not measured) worst-case delay before a lookup fails over: ~%.0f s", fo.WorstCaseSec)
 	}
 	for _, n := range fo.Notes {
 		o.p("- %s", n)
@@ -553,9 +590,9 @@ var methodology = [][2]string{
 	{"EDNS0", "Checks the OPT record in the reply (EDNS version, server UDP size, NSID) and the RA (recursion available) flag."},
 	{"Truncation → TCP fallback", "Root DNSKEY with DNSSEC records (~1.1 KB) requested with a 512-byte UDP limit: the server should set TC=1, then the same query over TCP must succeed."},
 	{"Large UDP", "Same root DNSKEY query with a 4096-byte limit over UDP: detects firewalls/middleboxes that drop large or fragmented DNS packets."},
-	{"DNSSEC", "ietf.org (validly signed; AD flag expected) and dnssec-failed.org (deliberately broken; a validating resolver must return SERVFAIL)."},
+	{"DNSSEC", "ietf.org (validly signed) is the positive control; dnssec-failed.org (deliberately broken) must SERVFAIL. Validation is only confirmed when that SERVFAIL is attributable to DNSSEC: a DNSSEC Extended DNS Error, or the same query with CD=1 succeeding. AD on the control alone = suspected; an unexplained SERVFAIL is retried, then reported inconclusive (a dead upstream also SERVFAILs)."},
 	{"NXDOMAIN integrity", "A random non-existent .com name must return NXDOMAIN; an address means NXDOMAIN rewriting (ISP ads/search pages)."},
-	{"Ad filtering", "pagead2.googlesyndication.com and ad.doubleclick.net: NXDOMAIN/REFUSED/0.0.0.0/private address/EDE 15–18 = blocked."},
+	{"Ad filtering", "Five common ad/tracker names; each classified as NXDOMAIN, REFUSED, sinkholed (0.0.0.0/private), EDE-blocked or resolved. Majority blocked = blocks-ads; some = partial. Inconclusive if the resolver also fails the control name."},
 	{"Server identity", "CHAOS TXT version.bind, hostname.bind, id.server — fingerprints dnsmasq/Unbound/BIND and anycast PoPs."},
 	{"Egress", "TXT o-o.myaddr.l.google.com (and whoami.akamai.net) reveal the IP the resolver uses toward authoritative servers; its ASN (Team Cymru) shows which network actually resolved the query."},
 	{"Interception (bogon)", "Queries to 192.0.2.53 and 2001:db8::53 (documentation ranges that never host DNS). Any answer proves port-53 traffic is transparently redirected."},
@@ -566,11 +603,11 @@ var methodology = [][2]string{
 	{"Routing", "Kernel route selection (source address/interface) for each resolver, plus the system traceroute tool toward 1.1.1.1 and 2606:4700:4700::1111."},
 	{"0x20 case", "Query sent with randomised letter case (eXaMpLe.CoM); the reply must echo it exactly. Rewriting means a DNS-mangling middlebox and breaks 0x20 anti-spoofing."},
 	{"EDNS version", "Query with EDNS version 1; RFC 6891 requires BADVERS. A silent drop means a firewall/resolver discards unknown EDNS — a future-compatibility hazard."},
-	{"DNS Cookies", "RFC 7873 client cookie sent; a server cookie in the reply means spoofing protection is supported."},
-	{"HTTPS RR", "cloudflare.com type HTTPS (65). Safari/Chrome/iOS query this for every site; old routers return FORMERR or drop it."},
-	{"Burst", "20 identical queries in parallel; losses indicate rate limiting or a small concurrent-query table (dnsmasq dns-forward-max)."},
-	{"Rebinding protection", "10.0.0.1.nip.io (public name → private IP). An empty/NX answer while public resolvers return 10.0.0.1 means rebinding protection is on."},
-	{"Caching", "TTL of example.com compared across ≥1 s; a decreasing TTL means answers come from a cache."},
+	{"DNS Cookies", "RFC 7873: a client cookie is sent, then the returned server cookie is presented on a second query; support is only claimed if that second query is accepted."},
+	{"HTTPS RR", "cloudflare.com type HTTPS (65), which is known to exist. Records = pass; empty NOERROR is compared with public resolvers (stripping is only confirmed if they return records); errors/timeouts = broken record-type handling."},
+	{"Burst", "Bursts of 5, 20 and 20 parallel queries, one resolver at a time. Loss at 5 = general loss/strict limit; clean at 5 but repeatable loss at 20 = rate limiting or a small query table."},
+	{"Rebinding protection", "Control 93.184.215.14.nip.io must resolve first (else sslip.io is tried; else inconclusive). Then 10.0.0.1.nip.io: suppressed answer = protection on."},
+	{"Uncached lookups & caching", "Three never-seen names (random.93.184.215.14.nip.io, falling back to sslip.io) are each resolved twice. First-lookup median/p90 = recursion cost. A repeat at network-RTT speed (TCP connect time) = local cache; faster than the first but slower than the RTT = forwarder relying on an upstream cache; no speed-up = no cache."},
 	{"DDR", "_dns.resolver.arpa SVCB (RFC 9462): resolver-advertised encrypted endpoints that Windows 11/Apple OSes auto-upgrade to."},
 	{"Canary domains", "use-application-dns.net (Mozilla: negative = disable auto-DoH) and mask.icloud.com (Apple: negative = Private Relay blocked)."},
 	{"Ping", "System ping to the default gateway (LAN/Wi-Fi quality) and to 1.1.1.1 / 2606:4700:4700::1111 (internet): loss, min/avg/max, jitter."},
@@ -579,6 +616,8 @@ var methodology = [][2]string{
 	{"Connectivity checks", "The HTTP probes Android/Chrome, Apple and Windows use (generate_204, hotspot-detect, connecttest). Redirects or other bodies mean a captive portal or HTTP interception; Via/X-Cache headers reveal proxies."},
 	{"NAT64", "AAAA lookup of ipv4only.arpa (RFC 7050); an answer reveals DNS64 and the NAT64 prefix."},
 	{"Local names", "This computer's hostname, PTR lookups of its IP and the gateway, and 'wpad' (which should not exist)."},
+	{"Website loading", "Fresh HTTPS GETs (no connection reuse) to google.com/generate_204, cloudflare.com/cdn-cgi/trace, wikipedia.org and github.com/robots.txt over each family, timed with httptrace: OS DNS lookup, TCP connect, TLS handshake, time to first byte, download. Used to attribute slowness to DNS, path latency, TLS or the server."},
+	{"Confidence", "Findings carry confidence: confirmed (independent checks agree), suspected (another cause is possible — alternatives are listed), inconclusive (evidence missing or contradictory). Treat suspected/inconclusive findings as leads, not facts."},
 	{"Direct path", "All DNS tests bypass the OS resolver and any HTTP proxy and talk to the exact IP being tested, so each result reflects that server and path only."},
 }
 

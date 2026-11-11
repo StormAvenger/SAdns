@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"net/netip"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -109,73 +108,6 @@ func linuxVersion() string {
 		return name + " (kernel " + k + ")"
 	}
 	return name
-}
-
-var resolvectlKey = regexp.MustCompile(`^([A-Za-z][A-Za-z .]*):\s*(.*)$`)
-
-// parseResolvectl extracts per-link DNS servers and DNS domains from
-// `resolvectl status`. Continuation lines (extra servers) have no key.
-func parseResolvectl(out string, info *Info) {
-	link := ""
-	lastKey := ""
-	addServers := func(key, val string) {
-		for _, s := range strings.Fields(val) {
-			s = stripSuffix(s)
-			if _, err := netip.ParseAddr(s); err != nil {
-				continue
-			}
-			switch key {
-			case "DNS Servers", "Current DNS Server":
-				info.Resolvers = append(info.Resolvers, Resolver{Addr: s, Interface: link, Source: "resolvectl " + key})
-			case "Fallback DNS Servers":
-				info.note("systemd-resolved fallback DNS server configured: " + s + " (used only if no other DNS is known)")
-			}
-		}
-	}
-	for _, raw := range strings.Split(out, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		if line == "Global" {
-			link, lastKey = "", ""
-			continue
-		}
-		if strings.HasPrefix(line, "Link ") {
-			if i := strings.Index(line, "("); i >= 0 {
-				link = strings.TrimSuffix(line[i+1:], ")")
-			}
-			lastKey = ""
-			continue
-		}
-		if m := resolvectlKey.FindStringSubmatch(line); m != nil && (strings.Contains(m[1], " ") || m[1] == "Protocols") {
-			lastKey = strings.TrimSpace(m[1])
-			val := strings.TrimSpace(m[2])
-			switch lastKey {
-			case "DNS Domain":
-				for _, d := range strings.Fields(val) {
-					if d != "~." {
-						info.SearchDomains = append(info.SearchDomains, strings.TrimPrefix(d, "~"))
-					}
-				}
-			default:
-				addServers(lastKey, val)
-			}
-			continue
-		}
-		addServers(lastKey, line) // continuation of the previous key
-	}
-}
-
-// stripSuffix removes resolvectl decorations like "1.1.1.1#cloudflare-dns.com" or "%eth0".
-func stripSuffix(s string) string {
-	if i := strings.Index(s, "#"); i >= 0 {
-		s = s[:i]
-	}
-	if i := strings.Index(s, "%"); i >= 0 {
-		s = s[:i]
-	}
-	return s
 }
 
 func procRoute4() []Gateway {

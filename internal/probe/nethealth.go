@@ -180,6 +180,72 @@ func pingCmd(fam int, ip string, count, size int, df bool) (string, []string) {
 	}
 }
 
+var icmpSeq = regexp.MustCompile(`icmp_seq[=:](\d+)`)
+
+// pingSequence returns per-packet results in send order (-1 = lost) when the
+// output identifies packets: icmp_seq on Unix, one result line per echo on
+// Windows. Returns nil when the order cannot be established.
+func pingSequence(out, ip string, sent int) []float64 {
+	host := ip
+	if i := strings.Index(host, "%"); i >= 0 {
+		host = host[:i]
+	}
+	seq := make([]float64, sent)
+	for i := range seq {
+		seq[i] = -1
+	}
+	lines := strings.Split(strings.ReplaceAll(out, "\r", ""), "\n")
+	if icmpSeq.MatchString(out) {
+		base := -1
+		for _, l := range lines {
+			m := icmpSeq.FindStringSubmatch(l)
+			r := pingRTT.FindStringSubmatch(l)
+			if m == nil || r == nil || !strings.Contains(l, host) {
+				continue
+			}
+			n, _ := strconv.Atoi(m[1])
+			if base < 0 {
+				base = min(n, 1) // Linux/macOS start at 1 or 0
+			}
+			if i := n - base; i >= 0 && i < sent {
+				seq[i], _ = strconv.ParseFloat(strings.ReplaceAll(r[1], ",", "."), 64)
+			}
+		}
+		return seq
+	}
+	if runtime.GOOS != "windows" && !strings.Contains(out, "\r") && !strings.Contains(out, "TTL=") {
+		return nil
+	}
+	// Windows: after the "Pinging …" header, exactly one line per echo.
+	i, started := 0, false
+	for _, l := range lines {
+		t := strings.TrimSpace(l)
+		if !started {
+			if strings.Contains(t, host) && strings.Contains(t, ":") && !pingRTT.MatchString(t) {
+				started = true // header line
+			}
+			continue
+		}
+		if t == "" {
+			if i > 0 {
+				break
+			}
+			continue
+		}
+		if i >= sent {
+			break
+		}
+		if r := pingRTT.FindStringSubmatch(t); r != nil && strings.Contains(t, host) {
+			seq[i], _ = strconv.ParseFloat(strings.ReplaceAll(r[1], ",", "."), 64)
+		}
+		i++
+	}
+	if i != sent {
+		return nil
+	}
+	return seq
+}
+
 // parsePing extracts per-reply RTTs. Only lines naming the target count, so
 // summary lines (which are localised on Windows) are ignored.
 func parsePing(out, ip string) []float64 {
@@ -223,6 +289,7 @@ func (e *Engine) ping(ctx context.Context, ip, label string, fam, count int) mod
 	}
 	l := stats(count, rtts)
 	p.MinMS, p.AvgMS, p.MaxMS, p.JitterMS = l.MinMS, l.AvgMS, l.MaxMS, l.JitterMS
+	p.Samples = pingSequence(out.Output, ip, count)
 	return p
 }
 
@@ -342,15 +409,11 @@ func sntp(ctx context.Context, name, addr string) model.NTPResult {
 		r.Error = "no reply on UDP/123 (" + err.Error() + ")"
 		return r
 	}
-	if n < 48 || resp[0]&0x7 != 4 {
-		r.Error = "malformed NTP reply"
+	if err := validateNTP(req, resp[:n]); err != nil {
+		r.Error = err.Error()
 		return r
 	}
 	r.Stratum = int(resp[1])
-	if r.Stratum == 0 {
-		r.Error = "kiss-of-death (" + strings.TrimRight(string(resp[12:16]), "\x00") + ")"
-		return r
-	}
 	t2, t3 := ntpTime(resp[32:]), ntpTime(resp[40:])
 	offset := (t2.Sub(t1) + t3.Sub(t4)) / 2
 	delay := t4.Sub(t1) - t3.Sub(t2)
@@ -358,6 +421,31 @@ func sntp(ctx context.Context, name, addr string) model.NTPResult {
 	r.OffsetMS = ms(offset)
 	r.RTTMS = ms(delay)
 	return r
+}
+
+// validateNTP rejects replies that cannot be trusted as a clock reading.
+func validateNTP(req, resp []byte) error {
+	if len(resp) < 48 {
+		return errors.New("short NTP reply")
+	}
+	li, vn, mode := resp[0]>>6, (resp[0]>>3)&0x7, resp[0]&0x7
+	switch {
+	case mode != 4:
+		return fmt.Errorf("not a server reply (mode %d)", mode)
+	case vn < 3 || vn > 4:
+		return fmt.Errorf("unsupported NTP version %d", vn)
+	case resp[1] == 0:
+		return fmt.Errorf("kiss-of-death (%s)", strings.TrimRight(string(resp[12:16]), "\x00"))
+	case resp[1] > 15:
+		return fmt.Errorf("invalid stratum %d", resp[1])
+	case li == 3:
+		return errors.New("server clock not synchronised (leap indicator 3)")
+	case string(resp[24:32]) != string(req[40:48]):
+		return errors.New("reply does not echo our transmit timestamp (stale or spoofed)")
+	case binary.BigEndian.Uint64(resp[40:48]) == 0 || binary.BigEndian.Uint64(resp[32:40]) == 0:
+		return errors.New("reply has zero timestamps")
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------- HTTP / captive portal
@@ -421,17 +509,9 @@ func nat64(ctx context.Context) model.NAT64 {
 	}
 	seen := map[string]bool{}
 	for _, a := range addrs {
-		a = a.Unmap()
-		if !a.Is6() {
-			continue
-		}
-		b := a.As16()
-		var p [16]byte
-		copy(p[:12], b[:12])
-		pfx := netip.PrefixFrom(netip.AddrFrom16(p), 96).String()
-		if !seen[pfx] {
-			seen[pfx] = true
-			n.Prefixes = append(n.Prefixes, pfx)
+		if p, ok := nat64Prefix(a.Unmap()); ok && !seen[p.String()] {
+			seen[p.String()] = true
+			n.Prefixes = append(n.Prefixes, p.String())
 		}
 	}
 	n.Detected = len(n.Prefixes) > 0
@@ -439,6 +519,40 @@ func nat64(ctx context.Context) model.NAT64 {
 		n.Detail = "DNS64 synthesises AAAA records; NAT64 prefix " + strings.Join(n.Prefixes, ", ") + " (IPv6-mostly network)"
 	}
 	return n
+}
+
+// rfc6052Layout maps each NAT64 prefix length to the byte offsets that hold
+// the embedded IPv4 address (byte 8, the "u" octet, is always skipped).
+var rfc6052Layout = map[int][4]int{
+	32: {4, 5, 6, 7},
+	40: {5, 6, 7, 9},
+	48: {6, 7, 9, 10},
+	56: {7, 9, 10, 11},
+	64: {9, 10, 11, 12},
+	96: {12, 13, 14, 15},
+}
+
+// nat64Prefix finds the NAT64 prefix in a synthesized AAAA for ipv4only.arpa
+// (RFC 7050 §3): the well-known IPv4 192.0.0.170/171 must appear at the
+// position RFC 6052 defines for one of the allowed prefix lengths.
+func nat64Prefix(a netip.Addr) (netip.Prefix, bool) {
+	if !a.Is6() || a.Is4In6() {
+		return netip.Prefix{}, false
+	}
+	b := a.As16()
+	for _, plen := range []int{96, 64, 56, 48, 40, 32} {
+		pos := rfc6052Layout[plen]
+		if b[pos[0]] == 192 && b[pos[1]] == 0 && b[pos[2]] == 0 && (b[pos[3]] == 170 || b[pos[3]] == 171) {
+			if plen < 96 && b[8] != 0 {
+				continue // u-octet must be zero
+			}
+			p, err := a.Prefix(plen)
+			if err == nil {
+				return p, true
+			}
+		}
+	}
+	return netip.Prefix{}, false
 }
 
 // ---------------------------------------------------------------- local names
