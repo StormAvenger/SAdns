@@ -40,6 +40,7 @@ type Report struct {
 	Network      NetHealth        `json:"network_health"`
 	Web          []WebTiming      `json:"web_timings"`
 	Data         DataUsage        `json:"data_usage"`
+	Vantage      Vantage          `json:"vantage"`
 	Privacy      string           `json:"privacy"`             // full, technical, public
 	Cancelled    bool             `json:"cancelled,omitempty"` // run stopped early: results incomplete
 }
@@ -463,4 +464,17 @@ type DataUsage struct {
 	ConfidenceAffected bool   `json:"confidence_affected"`
 	Note               string `json:"note,omitempty"`
 	Scope              string `json:"scope"`
+}
+
+// Vantage records where the measurements were taken from. Inside a container
+// on a bridge network the "device", "LAN" and "gateway" are the container's
+// virtual interface and the Docker bridge — not the host or the home network —
+// and the report must say so rather than present them as the host's view.
+type Vantage struct {
+	Mode        string   `json:"mode"` // host, container-bridge, container-host-network, container-unknown
+	InContainer bool     `json:"in_container"`
+	Runtime     string   `json:"runtime,omitempty"`   // docker, podman, kubernetes, containerd, unknown
+	Detection   string   `json:"detection,omitempty"` // how the mode was determined
+	Note        string   `json:"note,omitempty"`
+	Unavailable []string `json:"unavailable,omitempty"` // diagnostics this vantage cannot provide
 }
