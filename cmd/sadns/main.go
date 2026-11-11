@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/StormAvenger/SAdns/internal/analyze"
@@ -156,7 +157,8 @@ func realMain(args []string) int {
 	}
 
 	tool := model.ToolInfo{Name: "SAdns", Version: version, Commit: commit, Built: built, Repo: repo}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	// SIGTERM matters in containers: `docker stop` sends it to PID 1.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	if mode == "auto" {

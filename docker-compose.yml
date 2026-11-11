@@ -1,0 +1,97 @@
+# SAdns with Docker Compose.
+#
+#   1. Put a password in ./sadns_password.txt (12+ characters), or remove the
+#      secret and read the generated one from `docker compose logs sadns`.
+#   2. docker compose up -d
+#   3. Open http://<docker-host>:8053
+#
+# Default: bridge networking. Results then describe the container's view —
+# internet, DNS and websites through Docker's NAT — and the dashboard says so.
+# For the Docker host's own network view, use the `sadns-host` service below
+# instead (an informed opt-in: the container then shares the host's network
+# namespace and can reach every port the host can).
+
+services:
+  sadns:
+    image: sadns:local
+    build: .
+    container_name: sadns
+    restart: unless-stopped
+    ports:
+      - "8053:8053"
+    volumes:
+      - sadns-data:/data
+    environment:
+      TZ: America/Los_Angeles                 # times in logs and the schedule
+      SADNS_PASSWORD_FILE: /run/secrets/sadns_password
+      # SADNS_ALLOWED_HOSTS: sadns.home.arpa,tower.local   # names you use in the browser (IPs always work)
+      # SADNS_SECURE_COOKIES: "true"          # behind an HTTPS reverse proxy
+      # SADNS_SCHEDULE_ENABLED: "true"        # Auto Run (also configurable in the UI)
+      # SADNS_SCHEDULE_INTERVAL: 1h           # 30m, 6h, 1d — minimum 5m
+      # SADNS_SCHEDULE_MODE: quick            # quick or full
+      # SADNS_SCHEDULE_LOW_DATA: "false"
+      # SADNS_HISTORY_RETAIN: "100"
+    secrets:
+      - sadns_password
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]                        # ping/traceroute; drop it to run without ICMP tests
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Host-network variant (Linux hosts). Measures the Docker host's own network.
+  # Start with: docker compose --profile host up -d sadns-host
+  sadns-host:
+    profiles: ["host"]
+    image: sadns:local
+    build: .
+    container_name: sadns-host
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - sadns-host-data:/data
+    environment:
+      TZ: America/Los_Angeles
+      SADNS_NETWORK_MODE: host
+      SADNS_LISTEN: ":8053"
+      SADNS_PASSWORD_FILE: /run/secrets/sadns_password
+    secrets:
+      - sadns_password
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+
+  # One-shot: run once, save the report into the volume, exit.
+  # docker compose run --rm sadns-once
+  sadns-once:
+    profiles: ["once"]
+    image: sadns:local
+    build: .
+    volumes:
+      - sadns-data:/data
+    command: ["run", "--save", "--out", "/data/reports"]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [NET_RAW]
+
+volumes:
+  sadns-data:
+  sadns-host-data:
+
+secrets:
+  sadns_password:
+    file: ./sadns_password.txt

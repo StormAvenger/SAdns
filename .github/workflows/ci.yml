@@ -60,3 +60,45 @@ jobs:
         run: go run honnef.co/go/tools/cmd/staticcheck@latest ./...
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
+  ui-e2e:
+    # Real browser against a real `sadns serve`; screenshots are uploaded as
+    # an artifact for review. Uses the runner's preinstalled Chrome.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+      - run: go build -o sadns ./cmd/sadns
+      - run: pip install --quiet playwright
+      - name: Seed history with three real scans
+        run: for i in 1 2 3; do ./sadns run --quick --low-data --save --data-dir "$RUNNER_TEMP/data" --out "$RUNNER_TEMP/out" >/dev/null; done
+      - name: UI end-to-end test
+        run: CHROME=$(command -v google-chrome) python3 tools/e2e/ui_test.py ./sadns "$RUNNER_TEMP/data" "$RUNNER_TEMP/shots"
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ui-screenshots
+          path: ${{ runner.temp }}/shots
+          retention-days: 7
+
+  docker:
+    # Builds the image for amd64 and arm64 and smoke-tests the amd64 image.
+    # Nothing is pushed: publishing needs the repository owner's approval.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Enable arm64 emulation for the runtime stage
+        run: docker run --privileged --rm tonistiigi/binfmt --install arm64
+      - name: Multi-arch build (not pushed)
+        run: |
+          docker buildx create --use --name sadns-ci
+          docker buildx build --platform linux/amd64,linux/arm64 --build-arg VERSION=ci-${GITHUB_SHA::7} --build-arg COMMIT=${GITHUB_SHA::7} --output type=cacheonly .
+      - name: Build amd64 image locally
+        run: docker buildx build --platform linux/amd64 --build-arg VERSION=ci-${GITHUB_SHA::7} --load -t sadns:ci .
+      - name: Container smoke test
+        run: tools/docker/smoke.sh sadns:ci
+      - name: Image size
+        run: docker image ls sadns:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}'

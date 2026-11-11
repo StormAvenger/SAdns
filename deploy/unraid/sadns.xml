@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!-- Unraid Docker template for SAdns. Example only: the image is not
+     published yet. Build it yourself (see docs/DOCKER.md) and set
+     Repository to your local tag, e.g. sadns:local. -->
+<Container version="2">
+  <Name>SAdns</Name>
+  <Repository>sadns:local</Repository>
+  <Registry>https://github.com/StormAvenger/SAdns</Registry>
+  <Network>bridge</Network>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/StormAvenger/SAdns/issues</Support>
+  <Project>https://github.com/StormAvenger/SAdns</Project>
+  <Overview>DNS and network diagnostics with a password-protected dashboard, scheduled scans (Auto Run), history and trends, and AI-ready Markdown/JSON reports. In bridge mode, results describe the container's view; switch Network Type to host to measure the Unraid server's own network (an informed opt-in). On first start a password is printed once in the container log unless you set SADNS_PASSWORD.</Overview>
+  <Category>Network:Other Tools:</Category>
+  <WebUI>http://[IP]:[PORT:8053]/</WebUI>
+  <Icon>https://raw.githubusercontent.com/StormAvenger/SAdns/main/docs/img/icon.png</Icon>
+  <ExtraParams>--cap-drop=ALL --cap-add=NET_RAW --security-opt=no-new-privileges:true --memory=256m --cpus=1 --restart=unless-stopped</ExtraParams>
+  <Config Name="Web UI port" Target="8053" Default="8053" Mode="tcp" Description="Dashboard port" Type="Port" Display="always" Required="true" Mask="false">8053</Config>
+  <Config Name="Data" Target="/data" Default="/mnt/user/appdata/sadns" Mode="rw" Description="History, settings and the password hash. Must be writable by UID 10001 (chown 10001:10001)." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/sadns</Config>
+  <Config Name="Password" Target="SADNS_PASSWORD" Default="" Description="12+ characters. Leave empty to have one generated and printed once in the log." Type="Variable" Display="always" Required="false" Mask="true"/>
+  <Config Name="Allowed host names" Target="SADNS_ALLOWED_HOSTS" Default="tower,tower.local" Description="Names you type in the browser besides IP addresses (comma-separated)." Type="Variable" Display="always" Required="false" Mask="false">tower,tower.local</Config>
+  <Config Name="Network mode hint" Target="SADNS_NETWORK_MODE" Default="" Description="bridge or host. Leave empty to auto-detect; set to host when using host networking." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Auto Run" Target="SADNS_SCHEDULE_ENABLED" Default="" Description="true/false. Leave empty to configure in the UI." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Auto Run interval" Target="SADNS_SCHEDULE_INTERVAL" Default="" Description="e.g. 30m, 1h, 1d (minimum 5m)" Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Time zone" Target="TZ" Default="America/Los_Angeles" Description="Time zone for logs and schedule" Type="Variable" Display="advanced" Required="false" Mask="false">America/Los_Angeles</Config>
+</Container>

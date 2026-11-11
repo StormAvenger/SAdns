@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/StormAvenger/SAdns/internal/model"
@@ -28,6 +29,28 @@ type Probe struct {
 	ReadFile   func(string) ([]byte, error)
 	Interfaces func() ([]string, error)
 	GOOS       string
+}
+
+// procGateways reads IPv4 default gateways from /proc/net/route, used when
+// the caller has not run a scan yet.
+func procGateways(read func(string) ([]byte, error)) []string {
+	b, err := read("/proc/net/route")
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, ln := range strings.Split(string(b), "\n")[1:] {
+		f := strings.Fields(ln)
+		if len(f) < 3 || f[1] != "00000000" || len(f[2]) != 8 {
+			continue
+		}
+		v, err := strconv.ParseUint(f[2], 16, 32)
+		if err != nil || v == 0 {
+			continue
+		}
+		out = append(out, netip.AddrFrom4([4]byte{byte(v), byte(v >> 8), byte(v >> 16), byte(v >> 24)}).String())
+	}
+	return out
 }
 
 // System returns a Probe for the real environment.
@@ -77,6 +100,9 @@ func Detect(p Probe, gateways []string) model.Vantage {
 		v.Mode = ContainerOther
 		why = append(why, "SADNS_NETWORK_MODE="+mode)
 	default:
+		if len(gateways) == 0 && p.ReadFile != nil {
+			gateways = procGateways(p.ReadFile)
+		}
 		v.Mode, how = guessNetwork(p, gateways)
 		why = append(why, how)
 	}

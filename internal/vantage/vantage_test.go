@@ -44,6 +44,7 @@ func TestDetect(t *testing.T) {
 		{"podman", env{goos: "linux", files: map[string]string{"/run/.containerenv": ""}, ifs: []string{"lo", "eth0"}}, []string{"10.88.0.1"}, ContainerOther, "podman"},
 		{"cgroup", env{goos: "linux", files: map[string]string{"/proc/1/cgroup": "0::/kubepods/besteffort/pod1"}, ifs: []string{"lo", "eth0"}}, []string{"172.17.0.1"}, ContainerBridge, "kubepods"},
 		{"override host", env{goos: "linux", vars: map[string]string{"SADNS_NETWORK_MODE": "host"}, files: map[string]string{"/.dockerenv": ""}, ifs: []string{"lo", "eth0"}}, []string{"172.17.0.1"}, ContainerHostNet, "docker"},
+		{"gateway from /proc", env{goos: "linux", files: map[string]string{"/.dockerenv": "", "/proc/net/route": "Iface\tDestination\tGateway\neth0\t00000000\t010011AC\t0003\n"}, ifs: []string{"lo", "eth0"}}, nil, ContainerBridge, "docker"},
 		{"forced container", env{goos: "linux", vars: map[string]string{"SADNS_IN_CONTAINER": "1", "SADNS_NETWORK_MODE": "bridge"}}, nil, ContainerBridge, "container"},
 	}
 	for _, c := range cases {
